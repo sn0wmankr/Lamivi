@@ -35,4 +35,4 @@ export type PageAsset = {
   texts: TextItem[]
 }
 
-export type Engine = 'auto' | 'iopaint'
+export type Engine = 'auto'

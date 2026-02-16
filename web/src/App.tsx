@@ -141,7 +141,7 @@ function App() {
   const active = useMemo(() => assets.find((a) => a.id === activeId) ?? null, [assets, activeId])
 
   const [tool, setTool] = useState<Tool>('brush')
-  const [engine, setEngine] = useState<Engine>('auto')
+  const engine: Engine = 'auto'
   const [brushSize, setBrushSize] = useState(34)
   const [maskMode, setMaskMode] = useState<MaskMode>('add')
   const [exportPixelRatio, setExportPixelRatio] = useState(2)
@@ -791,13 +791,9 @@ function App() {
           </div>
           <div className="panelBody">
             <div className="row">
-              <div className="label">Engine</div>
-              <select className="select" value={engine} onChange={(e) => setEngine(e.target.value as Engine)}>
-                <option value="auto">auto</option>
-                <option value="iopaint">iopaint</option>
-              </select>
+              <div className="label">AI erase</div>
               <div className="hint">
-                `auto` uses IOPaint via the server proxy.
+                LaMa-style erase is built into Lamivi Docker stack. Just paint mask and click `Erase (AI)`.
               </div>
             </div>
 
