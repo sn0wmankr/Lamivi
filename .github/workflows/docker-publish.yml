@@ -37,6 +37,7 @@ jobs:
             name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/lamivi,enable=${{ vars.DOCKERHUB_USERNAME != '' }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=dev,enable={{is_default_branch}}
             type=sha
             type=ref,event=tag
 
