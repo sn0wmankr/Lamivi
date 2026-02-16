@@ -1,4 +1,4 @@
-name: Docker Publish (GHCR + Docker Hub)
+name: Docker Publish (Docker Hub)
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-and-push:
@@ -19,13 +18,6 @@ jobs:
 
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/login-action@v3
-        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
-        with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
@@ -33,8 +25,7 @@ jobs:
         id: meta
         with:
           images: |
-            name=ghcr.io/${{ github.repository_owner }}/lamivi
-            name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/lamivi,enable=${{ vars.DOCKERHUB_USERNAME != '' }}
+            name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/lamivi
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable={{is_default_branch}}

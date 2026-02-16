@@ -69,9 +69,15 @@ Open: `http://localhost:5173`
 Workflow: `.github/workflows/docker-publish.yml`
 
 Published targets:
-- `ghcr.io/<github-user-or-org>/lamivi:latest`
-- `docker.io/<dockerhub-username>/lamivi:latest` (if configured)
+- `docker.io/<dockerhub-username>/lamivi:latest`
+- `docker.io/<dockerhub-username>/lamivi:dev`
 
 For Docker Hub publishing, set:
 1. Repository Variable: `DOCKERHUB_USERNAME`
 2. Repository Secret: `DOCKERHUB_TOKEN`
+
+Pull example:
+
+```bash
+docker pull docker.io/<dockerhub-username>/lamivi:dev
+```
