@@ -1,0 +1,16 @@
+services:
+  lamivi:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Optional: point to the iopaint service for best erase quality.
+      - IOPAINT_URL=http://iopaint:8080
+    depends_on:
+      - iopaint
+
+  iopaint:
+    image: sanster/iopaint:latest
+    command: ["iopaint", "start", "--model=lama", "--device=cpu", "--port=8080", "--host=0.0.0.0"]
+    ports:
+      - "8080:8080"
