@@ -12,6 +12,9 @@ This repo is split into:
 
 ## Dev (local)
 
+If your goal is "no separate IOPaint install", skip local dev and use Docker below.
+`docker compose up --build` starts everything together.
+
 Terminal 1 (IOPaint):
 
 ```bash
@@ -50,6 +53,8 @@ docker compose up --build
 Open:
 - Lamivi: `http://localhost:8000`
 - IOPaint: `http://localhost:8080`
+
+You do **not** need to install IOPaint manually. It runs as an internal container in the stack.
 
 ## Published Docker Image
 
