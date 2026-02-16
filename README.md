@@ -1,5 +1,26 @@
 # Lamivi
 
+## 한국어 안내
+
+Lamivi는 여러 장 이미지/PDF를 불러와서,
+- 브러시로 지울 영역을 칠하고
+- AI(LaMa 기반)로 글자/오브젝트를 지우고
+- 텍스트를 추가/이동/크기/폰트 조절한 뒤
+- PNG/PDF로 내보내는 웹 에디터입니다.
+
+### 가장 쉬운 실행 (권장)
+
+```bash
+docker compose up --build
+```
+
+접속:
+- Lamivi: `http://localhost:8000`
+- IOPaint 엔진 컨테이너: `http://localhost:8080`
+
+중요: **IOPaint를 PC에 따로 설치할 필요 없습니다.**
+`docker compose`가 Lamivi + IOPaint를 함께 올립니다.
+
 Lamivi is a small self-hosted web editor for:
 - Importing **multiple images** or a **PDF** (PDF pages become editable pages)
 - Painting a mask to **erase text/objects** via LaMa-style inpainting
@@ -58,9 +79,22 @@ You do **not** need to install IOPaint manually. It runs as an internal containe
 
 ## Published Docker Image
 
-After pushing to GitHub, a workflow builds and publishes Lamivi to GHCR:
+After pushing to GitHub, a workflow builds and publishes Lamivi to GHCR and optionally Docker Hub:
 
 `ghcr.io/<your-github-username-or-org>/lamivi:latest`
+
+`docker.io/<dockerhub-username>/lamivi:latest`
+
+### Docker Hub publishing setup (GitHub Actions)
+
+Set these in your GitHub repository:
+
+1. **Repository Variable**
+   - `DOCKERHUB_USERNAME`: your Docker Hub username
+2. **Repository Secret**
+   - `DOCKERHUB_TOKEN`: Docker Hub access token (not password)
+
+If these are set, workflow `.github/workflows/docker-publish.yml` also pushes to Docker Hub.
 
 ## Notes
 

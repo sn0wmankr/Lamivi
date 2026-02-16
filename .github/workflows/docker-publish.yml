@@ -1,4 +1,4 @@
-name: Docker Publish (GHCR)
+name: Docker Publish (GHCR + Docker Hub)
 
 on:
   push:
@@ -23,10 +23,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: docker/login-action@v3
+        if: ${{ vars.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository_owner }}/lamivi
+          images: |
+            name=ghcr.io/${{ github.repository_owner }}/lamivi
+            name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/lamivi,enable=${{ vars.DOCKERHUB_USERNAME != '' }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
