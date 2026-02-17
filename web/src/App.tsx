@@ -1,15 +1,83 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type DragEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
-import { Image as KonvaImage, Layer, Line, Stage, Text, Group, Rect, Transformer } from 'react-konva'
+import { Circle, Image as KonvaImage, Layer, Line, Stage, Text, Group, Rect, Transformer } from 'react-konva'
 import { jsPDF } from 'jspdf'
+import PptxGenJS from 'pptxgenjs'
 
 import './App.css'
-import type { Engine, MaskMode, MaskStroke, PageAsset, TextItem, Tool } from './lib/types'
+import type { LayerGroup, MaskStroke, PageAsset, TextItem, Tool } from './lib/types'
 import { importImageFile, importPdfFile } from './lib/importers'
 import { inpaintViaApi } from './lib/api'
 import { dataUrlToBlob, downloadBlob } from './lib/download'
 
 type Size = { w: number; h: number }
+const SUPPORTED_LOCALES = ['ko', 'en'] as const
+type Locale = (typeof SUPPORTED_LOCALES)[number]
+type ExportKind = 'png' | 'jpg' | 'webp' | 'pdf' | 'pptx'
+
+type PageSnapshot = {
+  width: number
+  height: number
+  baseDataUrl: string
+  texts: TextItem[]
+  groups: LayerGroup[]
+}
+
+type AssetListSnapshot = {
+  assets: PageAsset[]
+  activeId: string | null
+}
+
+type AssetListHistoryEntry = {
+  label: string
+  snapshot: AssetListSnapshot
+  timestamp: number
+}
+
+type CropRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type InpaintJob = {
+  assetId: string
+  strokes: MaskStroke[]
+}
+
+type NormalizedStroke = {
+  points: number[]
+  strokeWidthRatio: number
+}
+
+type UiDensity = 'default' | 'compact'
+type SettingsTab = 'general' | 'editing' | 'info'
+type TooltipDensity = 'simple' | 'detailed'
+type AnimationStrength = 'low' | 'default' | 'high'
+
+type ToastLogItem = {
+  id: string
+  text: string
+  tone: 'error' | 'success' | 'working' | 'info'
+  at: number
+  assetId?: string | null
+  snapshot?: string | null
+}
+
+type ActivityFilter = 'all' | 'error' | 'success' | 'working'
+
+type AutoSavePayload = {
+  assets: PageAsset[]
+  activeId: string | null
+  ts: number
+}
+
+const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev'
+const BRUSH_MIN = 1
+const BRUSH_MAX = 2000
+const BRUSH_SLIDER_MAX = 1000
+const ERASER_COLOR_BUCKET_STEP = 8
 
 function uid(prefix: string) {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -20,6 +88,54 @@ function uid(prefix: string) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
+}
+
+function normalizeCropRect(rect: CropRect, maxW: number, maxH: number): CropRect {
+  const x = clamp(Math.round(rect.x), 0, Math.max(0, maxW - 1))
+  const y = clamp(Math.round(rect.y), 0, Math.max(0, maxH - 1))
+  const width = clamp(Math.round(rect.width), 1, Math.max(1, maxW - x))
+  const height = clamp(Math.round(rect.height), 1, Math.max(1, maxH - y))
+  return { x, y, width, height }
+}
+
+function rectFromPoints(startX: number, startY: number, endX: number, endY: number, maxW: number, maxH: number): CropRect {
+  const x1 = clamp(startX, 0, maxW)
+  const y1 = clamp(startY, 0, maxH)
+  const x2 = clamp(endX, 0, maxW)
+  const y2 = clamp(endY, 0, maxH)
+  const left = Math.min(x1, x2)
+  const top = Math.min(y1, y2)
+  const right = Math.max(x1, x2)
+  const bottom = Math.max(y1, y2)
+  return normalizeCropRect(
+    {
+      x: left,
+      y: top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    },
+    maxW,
+    maxH,
+  )
+}
+
+function brushToSlider(value: number) {
+  const clamped = clamp(value, BRUSH_MIN, BRUSH_MAX)
+  const ratio = (clamped - BRUSH_MIN) / (BRUSH_MAX - BRUSH_MIN)
+  return Math.round(Math.sqrt(ratio) * BRUSH_SLIDER_MAX)
+}
+
+function sliderToBrush(value: number) {
+  const ratio = clamp(value, 0, BRUSH_SLIDER_MAX) / BRUSH_SLIDER_MAX
+  return Math.round(BRUSH_MIN + ratio * ratio * (BRUSH_MAX - BRUSH_MIN))
+}
+
+function toKonvaFontStyle(item: Pick<TextItem, 'fontWeight' | 'fontStyle'>): string {
+  const bold = item.fontWeight >= 600
+  if (bold && item.fontStyle === 'italic') return 'bold italic'
+  if (bold) return 'bold'
+  if (item.fontStyle === 'italic') return 'italic'
+  return 'normal'
 }
 
 function useElementSize<T extends HTMLElement>() {
@@ -51,7 +167,7 @@ async function renderMaskToPng(opts: {
   canvas.height = opts.height
 
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas 2D context not available')
+  if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
 
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = 'black'
@@ -64,7 +180,7 @@ async function renderMaskToPng(opts: {
     const pts = stroke.points
     if (pts.length < 4) continue
     ctx.lineWidth = stroke.strokeWidth
-    ctx.strokeStyle = stroke.mode === 'add' ? 'white' : 'black'
+    ctx.strokeStyle = 'white'
     ctx.beginPath()
     ctx.moveTo(pts[0], pts[1])
     for (let i = 2; i < pts.length; i += 2) {
@@ -74,7 +190,7 @@ async function renderMaskToPng(opts: {
   }
 
   const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('Failed to encode PNG')
+  if (!blob) throw new Error('PNG로 변환하지 못했습니다.')
   return blob
 }
 
@@ -82,12 +198,167 @@ function loadHtmlImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('Failed to load image'))
+    img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'))
     img.src = dataUrl
   })
 }
 
-async function renderAssetToDataUrl(asset: PageAsset, pixelRatio = 2): Promise<string> {
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const value = reader.result
+      if (typeof value !== 'string') {
+        reject(new Error('데이터 URL로 변환하지 못했습니다.'))
+        return
+      }
+      resolve(value)
+    }
+    reader.onerror = () => reject(new Error('데이터 URL로 변환하지 못했습니다.'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function cloneStrokes(strokes: MaskStroke[]): MaskStroke[] {
+  return strokes.map((stroke) => ({
+    ...stroke,
+    points: [...stroke.points],
+  }))
+}
+
+function normalizeStrokes(strokes: MaskStroke[], width: number, height: number): NormalizedStroke[] {
+  const base = Math.max(1, Math.min(width, height))
+  return strokes.map((stroke) => ({
+    points: stroke.points.map((value, idx) => (idx % 2 === 0 ? value / Math.max(1, width) : value / Math.max(1, height))),
+    strokeWidthRatio: stroke.strokeWidth / base,
+  }))
+}
+
+function denormalizeStrokes(template: NormalizedStroke[], width: number, height: number): MaskStroke[] {
+  const base = Math.max(1, Math.min(width, height))
+  return template.map((stroke, idx) => ({
+    id: uid(`macro-${idx}`),
+    points: stroke.points.map((value, pIdx) => (pIdx % 2 === 0 ? value * width : value * height)),
+    strokeWidth: Math.max(1, stroke.strokeWidthRatio * base),
+  }))
+}
+
+function getInpaintBounds(strokes: MaskStroke[], width: number, height: number, padding = 2): CropRect | null {
+  if (strokes.length === 0) return null
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+
+  for (const stroke of strokes) {
+    for (let i = 0; i < stroke.points.length; i += 2) {
+      const x = stroke.points[i] ?? 0
+      const y = stroke.points[i + 1] ?? 0
+      minX = Math.min(minX, x - stroke.strokeWidth / 2)
+      minY = Math.min(minY, y - stroke.strokeWidth / 2)
+      maxX = Math.max(maxX, x + stroke.strokeWidth / 2)
+      maxY = Math.max(maxY, y + stroke.strokeWidth / 2)
+    }
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null
+  }
+
+  return normalizeCropRect(
+    {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    },
+    width,
+    height,
+  )
+}
+
+async function renderAssetRegionToBlob(asset: PageAsset, rect: CropRect): Promise<Blob> {
+  const source = await loadHtmlImage(asset.baseDataUrl)
+  const canvas = document.createElement('canvas')
+  canvas.width = rect.width
+  canvas.height = rect.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+  ctx.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height)
+  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+  if (!blob) throw new Error('PNG로 변환하지 못했습니다.')
+  return blob
+}
+
+async function mergeInpaintResult(baseDataUrl: string, rect: CropRect, patchBlob: Blob): Promise<string> {
+  const [baseImage, patchImage] = await Promise.all([
+    loadHtmlImage(baseDataUrl),
+    blobToDataUrl(patchBlob).then((url) => loadHtmlImage(url)),
+  ])
+  const canvas = document.createElement('canvas')
+  canvas.width = baseImage.width
+  canvas.height = baseImage.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+  ctx.drawImage(baseImage, 0, 0)
+  ctx.drawImage(patchImage, rect.x, rect.y, rect.width, rect.height)
+  return canvas.toDataURL('image/png')
+}
+
+function dominantNeighborColor(ctx: CanvasRenderingContext2D, width: number, height: number, rect: CropRect): string {
+  const pad = clamp(Math.round(Math.max(6, Math.min(width, height) * 0.01)), 6, 28)
+  const x1 = clamp(rect.x - pad, 0, width)
+  const y1 = clamp(rect.y - pad, 0, height)
+  const x2 = clamp(rect.x + rect.width + pad, 0, width)
+  const y2 = clamp(rect.y + rect.height + pad, 0, height)
+
+  const buckets = new Map<string, { count: number; r: number; g: number; b: number }>()
+  const step = ERASER_COLOR_BUCKET_STEP
+
+  function sampleRegion(sx: number, sy: number, sw: number, sh: number) {
+    if (sw <= 0 || sh <= 0) return
+    const data = ctx.getImageData(sx, sy, sw, sh).data
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] ?? 0
+      if (alpha < 8) continue
+      const r = data[i] ?? 0
+      const g = data[i + 1] ?? 0
+      const b = data[i + 2] ?? 0
+      const qr = Math.floor(r / step)
+      const qg = Math.floor(g / step)
+      const qb = Math.floor(b / step)
+      const key = `${qr},${qg},${qb}`
+      const prev = buckets.get(key)
+      if (prev) {
+        prev.count += 1
+        prev.r += r
+        prev.g += g
+        prev.b += b
+      } else {
+        buckets.set(key, { count: 1, r, g, b })
+      }
+    }
+  }
+
+  sampleRegion(x1, y1, x2 - x1, Math.max(0, rect.y - y1))
+  sampleRegion(x1, rect.y + rect.height, x2 - x1, Math.max(0, y2 - (rect.y + rect.height)))
+  sampleRegion(x1, rect.y, Math.max(0, rect.x - x1), rect.height)
+  sampleRegion(rect.x + rect.width, rect.y, Math.max(0, x2 - (rect.x + rect.width)), rect.height)
+
+  let best: { count: number; r: number; g: number; b: number } | null = null
+  for (const entry of buckets.values()) {
+    if (!best || entry.count > best.count) best = entry
+  }
+  if (!best) return 'rgb(255, 255, 255)'
+  return `rgb(${Math.round(best.r / best.count)}, ${Math.round(best.g / best.count)}, ${Math.round(best.b / best.count)})`
+}
+
+async function renderAssetToDataUrl(
+  asset: PageAsset,
+  pixelRatio = 2,
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' = 'image/png',
+  quality?: number,
+): Promise<string> {
   const baseImg = await loadHtmlImage(asset.baseDataUrl)
   const container = document.createElement('div')
   const stage = new Konva.Stage({ container, width: asset.width, height: asset.height })
@@ -97,6 +368,7 @@ async function renderAssetToDataUrl(asset: PageAsset, pixelRatio = 2): Promise<s
   layer.add(new Konva.Image({ image: baseImg, x: 0, y: 0, width: asset.width, height: asset.height }))
 
   for (const t of asset.texts) {
+    if (!t.visible) continue
     layer.add(
       new Konva.Text({
         x: t.x,
@@ -104,15 +376,17 @@ async function renderAssetToDataUrl(asset: PageAsset, pixelRatio = 2): Promise<s
         text: t.text,
         fontFamily: t.fontFamily,
         fontSize: t.fontSize,
+        fontStyle: toKonvaFontStyle(t),
         fill: t.fill,
         rotation: t.rotation,
         align: t.align,
+        opacity: t.opacity,
       }),
     )
   }
 
   layer.draw()
-  const dataUrl = stage.toDataURL({ pixelRatio })
+  const dataUrl = stage.toDataURL({ pixelRatio, mimeType, quality })
   stage.destroy()
   return dataUrl
 }
@@ -127,23 +401,486 @@ const FONT_FAMILIES = [
 ]
 
 const DEFAULT_TEXT: Omit<TextItem, 'id' | 'x' | 'y'> = {
-  text: '텍스트',
+  text: 'Text',
   fontFamily: 'IBM Plex Sans',
   fontSize: 42,
   fill: '#ffffff',
+  fontWeight: 500,
+  fontStyle: 'normal',
   rotation: 0,
   align: 'left',
+  visible: true,
+  locked: false,
+  opacity: 1,
+  groupId: 'group-default',
 }
 
+const COLOR_SWATCHES = ['#ffffff', '#f8fafc', '#111827', '#ef4444', '#f59e0b', '#22c55e', '#0ea5e9', '#a855f7']
+
+const LANGUAGE_OPTIONS: Array<{ code: Locale; label: string }> = [
+  { code: 'ko', label: '한국어' },
+  { code: 'en', label: 'English' },
+]
+
+const DEFAULT_GROUP: LayerGroup = {
+  id: 'group-default',
+  name: 'Default',
+  collapsed: false,
+}
+
+const UI = {
+  ko: {
+    tag: '이미지/PDF 통합 편집',
+    import: '불러오기',
+    language: '언어',
+    aiEngine: 'AI 엔진',
+    aiRestoreEngine: 'AI 복원',
+    aiReady: '준비됨',
+    aiInit: '준비중',
+    aiError: '오류',
+    aiSetCpu: 'CPU',
+    aiSetGpu: 'GPU',
+    gpuUnavailable: 'CUDA를 사용할 수 없습니다',
+    available: '사용가능',
+    unavailable: '사용불가',
+    brush: '브러시',
+    aiRestore: 'AI 복원',
+    aiEraser: 'AI 지우개',
+    text: '텍스트',
+    move: '이동',
+    addText: '텍스트 추가',
+    clearMask: '브러시 표시 지우기',
+    clearTexts: '텍스트 전체 삭제',
+    undoRestore: '복원 되돌리기',
+    redoRestore: '복원 다시 실행',
+    undoAction: '되돌리기',
+    redoAction: '다시 실행',
+    exportPng: 'PNG 내보내기',
+    exportJpg: 'JPG 내보내기',
+    exportWebp: 'WEBP 내보내기',
+    exportPdf: 'PDF 내보내기',
+    exportPptx: 'PPTX 내보내기',
+    files: '파일',
+    removeAsset: '목록에서 제거',
+    clearAllAssets: '모두 삭제',
+    emptyFiles: '이미지/PDF 파일을 불러오거나 여기에 드래그하세요. PDF는 페이지 단위로 자동 분리됩니다.',
+    assetMeta: (w: number, h: number, t: number) => `${w}×${h} · 텍스트 ${t}`,
+    emptyCanvas: '이미지/PDF 통합 편집 도구',
+    heroSubtitle: '이미지/PDF 통합 편집 도구',
+    heroRepo: 'sn0wman.kr',
+    controls: '편집 옵션',
+    tabLayers: '레이어',
+    tabProperties: '속성',
+    tabHistory: '히스토리',
+    tools: '작업 도구',
+    textTools: '텍스트 도구',
+    textOptionsSimple: '간단',
+    textOptionsAdvanced: '고급',
+    toolOptions: '도구 옵션',
+    textLayers: '텍스트 레이어',
+    addTextLayer: '텍스트 레이어 추가',
+    addGroup: '그룹 추가',
+    groupName: '그룹',
+    noTextLayers: '텍스트 레이어가 없습니다.',
+    showLayer: '레이어 보이기/숨기기',
+    lockLayer: '레이어 잠금/해제',
+    moveLayerUp: '레이어 위로',
+    moveLayerDown: '레이어 아래로',
+    moveToGroup: '그룹 이동',
+    layerHidden: '숨김',
+    layerLocked: '잠금',
+    historyPanel: '히스토리',
+    noHistory: '히스토리 항목이 없습니다.',
+    historyCurrent: '현재 상태',
+    historyAddText: '텍스트 레이어 추가',
+    historyUpdateText: '텍스트 수정',
+    historyEditInline: '텍스트 인라인 편집',
+    historyDeleteText: '텍스트 레이어 삭제',
+    historyMoveText: '텍스트 이동',
+    historyTransformText: '텍스트 변형',
+    historyClearTexts: '텍스트 전체 삭제',
+    historyToggleVisible: '레이어 표시/숨김',
+    historyToggleLock: '레이어 잠금/해제',
+    historyMoveLayer: '레이어 순서 이동',
+    historyCrop: '잘라내기',
+    historyAiRestore: 'AI 복원',
+    historyAiEraser: 'AI 지우개',
+    historyRemoveAsset: '파일 제거',
+    historyReorderAssets: '파일 순서 변경',
+    historyClearAssets: '파일 전체 삭제',
+    historyJumpCheckpoint: '히스토리 이동 기준점',
+    historyUndoCheckpoint: '되돌리기 기준점',
+    historyRedoCheckpoint: '다시 실행 기준점',
+    deleteHistory: '히스토리 삭제',
+    fontWeightLabel: '굵기',
+    fontWeightRegular: '기본',
+    fontWeightBold: '굵게',
+    italicLabel: '기울임',
+    opacity: '불투명도',
+    restoreHint: '브러시로 칠하고 마우스를 떼면 즉시 AI 복원이 실행됩니다.',
+    eraserHint: '브러시로 칠하면 주변 색을 즉시 채워 지웁니다.',
+    brushSize: '브러시 크기',
+    exportQuality: '내보내기 품질',
+    exportQualityHint: '값이 높을수록 선명하지만 CPU/메모리 사용량이 증가합니다.',
+    exportDialogTitle: '내보내기 설정',
+    exportDialogDesc: '형식과 품질을 선택하세요.',
+    exportFormat: '형식',
+    exportNow: '내보내기(저장하기)',
+    cancel: '취소',
+    selectedText: '선택한 텍스트',
+    noSelectedText: '텍스트를 선택하면 상세 설정이 표시됩니다.',
+    modeRestore: '모드: AI 복원',
+    modeEraser: '모드: AI 지우개',
+    modeText: '모드: 텍스트 입력',
+    modeCrop: '모드: 잘라내기',
+    textSelectMode: '텍스트 선택',
+    crop: '잘라내기',
+    zoomIn: '확대',
+    zoomOut: '축소',
+    zoomReset: '배율 초기화',
+    cropSelection: '잘라내기 영역',
+    cropX: 'X',
+    cropY: 'Y',
+    cropWidth: '너비',
+    cropHeight: '높이',
+    applyCrop: '잘라내기 적용',
+    cancelCrop: '영역 취소',
+    cropHint: '드래그로 영역을 지정하거나 수치를 입력하세요.',
+    cropDone: '잘라내기를 적용했습니다',
+    macroCount: '반복 횟수',
+    macroRun: '최근 AI 복원 영역 전체 적용',
+    macroHint: '최근 브러시 영역을 모든 파일의 같은 위치에 반복 적용합니다.',
+    macroNoStroke: '반복할 브러시 기록이 없습니다',
+    font: '글꼴',
+    size: '크기',
+    color: '색상',
+    rotation: '회전',
+    align: '정렬',
+    alignLeft: '왼쪽',
+    alignCenter: '가운데',
+    alignRight: '오른쪽',
+    deleteText: '텍스트 삭제',
+    selectTextHint: '캔버스의 텍스트를 클릭하거나 `텍스트 추가`를 눌러 편집하세요.',
+    ready: '준비됨',
+    importing: '가져오는 중…',
+    importingStatus: '파일을 가져오는 중입니다',
+    imported: (n: number) => `${n}개 페이지를 불러왔습니다`,
+    maskEmpty: '브러시 표시가 없습니다',
+    inpainting: 'AI 복원 실행 중…',
+    done: '완료',
+    exporting: '내보내는 중…',
+    exportedPng: 'PNG로 내보냈습니다',
+    exportingPdf: 'PDF 내보내는 중…',
+    noPages: '내보낼 페이지가 없습니다',
+    exportedPdf: 'PDF로 내보냈습니다',
+    dropHint: '이미지/PDF 파일을 놓으면 바로 불러옵니다',
+    reorderHint: '파일 카드를 드래그해서 순서를 바꿀 수 있습니다.',
+    guideTitle: '빠른 시작 가이드',
+    guideStepImport: '왼쪽 파일 패널에서 이미지를 불러오거나 드래그하세요.',
+    guideStepTool: '왼쪽 도구에서 AI 복원/AI 지우개/텍스트/잘라내기를 선택하세요.',
+    guideStepRun: '브러시로 칠하고 마우스를 떼면 즉시 AI 복원이 실행됩니다.',
+    guideStepExport: '히스토리 패널 아래의 내보내기(저장하기)로 결과를 저장하세요.',
+    guideMetaImport: '파일 패널 · 드래그 앤 드롭',
+    guideMetaTool: '단축키: B / E / T / C',
+    guideMetaRun: '드래그 후 마우스를 놓아 실행',
+    guideMetaExport: '히스토리 패널 하단 버튼',
+    guideClose: '가이드 닫기',
+    guideShow: '가이드 보기',
+    settings: '설정',
+    settingsTitle: '설정',
+    settingsClose: '닫기',
+    settingsGuide: '가이드 표시',
+    settingsLanguage: '언어',
+    settingsAiDefault: 'AI 엔진 기본값',
+    settingsAiRestoreDefault: 'AI 복원 엔진 기본값',
+    settingsBrushDefault: '기본 브러시 크기',
+    settingsAutoSave: '자동 저장 주기(초)',
+    settingsShortcutTips: '단축키 툴팁 표시',
+    settingsTooltipDensity: '툴팁 밀도',
+    settingsTooltipSimple: '간단',
+    settingsTooltipDetailed: '상세',
+    settingsAnimationStrength: '애니메이션 강도',
+    settingsAnimationLow: '낮음',
+    settingsAnimationDefault: '기본',
+    settingsAnimationHigh: '강함',
+    settingsUiDensity: 'UI 밀도',
+    settingsDensityDefault: '기본',
+    settingsDensityCompact: '컴팩트',
+    settingsAutoSaveOff: '사용 안함',
+    settingsTabGeneral: '일반',
+    settingsTabEditing: '편집',
+    settingsTabInfo: '정보',
+    settingsLastAutoSave: '마지막 자동 저장',
+    settingsNoAutoSave: '자동 저장 꺼짐',
+    activityLog: '작업 로그',
+    activityShow: '로그 보기',
+    activityHide: '로그 닫기',
+    activityEmpty: '아직 작업 로그가 없습니다.',
+    activityFilterAll: '전체',
+    activityFilterError: '오류',
+    activityFilterSuccess: '완료',
+    activityFilterWorking: '진행',
+    activityKindAi: 'AI',
+    activityKindExport: '내보내기',
+    activityKindText: '텍스트',
+    activityKindSystem: '시스템',
+    quickBarMove: '퀵바 이동',
+    quickBarToggle: '퀵바 접기/펼치기',
+    cancelTask: '작업 취소',
+    taskCancelled: '작업을 취소했습니다',
+    settingsInfo: '개발자 정보',
+    settingsVersion: '버전',
+    settingsDeveloper: '개발자',
+    settingsRepo: '저장소',
+    settingsCopyDiagnostics: '환경 진단 복사',
+    settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
+    restorePromptTitle: '자동 저장된 작업을 찾았습니다',
+    restorePromptBody: '이전 편집 상태를 복원할까요?',
+    restorePromptRestore: '복원하기',
+    restorePromptDiscard: '건너뛰기',
+    settingsName: 'sn0wmankr',
+  },
+  en: {
+    tag: 'Image/PDF editor',
+    import: 'Import',
+    language: 'Language',
+    aiEngine: 'AI Engine',
+    aiRestoreEngine: 'AI Restore',
+    aiReady: 'Ready',
+    aiInit: 'Starting',
+    aiError: 'Error',
+    aiSetCpu: 'CPU',
+    aiSetGpu: 'GPU',
+    gpuUnavailable: 'CUDA is unavailable',
+    available: 'Available',
+    unavailable: 'Unavailable',
+    brush: 'Brush',
+    aiRestore: 'AI Restore',
+    aiEraser: 'AI Eraser',
+    text: 'Text',
+    move: 'Move',
+    addText: 'Add text',
+    clearMask: 'Clear brush trace',
+    clearTexts: 'Clear texts',
+    undoRestore: 'Undo restore',
+    redoRestore: 'Redo restore',
+    undoAction: 'Undo',
+    redoAction: 'Redo',
+    exportPng: 'Export PNG',
+    exportJpg: 'Export JPG',
+    exportWebp: 'Export WEBP',
+    exportPdf: 'Export PDF',
+    exportPptx: 'Export PPTX',
+    files: 'Files',
+    removeAsset: 'Remove from list',
+    clearAllAssets: 'Clear all',
+    emptyFiles: 'Import images/PDF or drag files here. PDF pages are automatically split.',
+    assetMeta: (w: number, h: number, t: number) => `${w}×${h} · text ${t}`,
+    emptyCanvas: 'Image/PDF integrated editing tool',
+    heroSubtitle: 'Image/PDF integrated editing tool',
+    heroRepo: 'sn0wman.kr',
+    controls: 'Controls',
+    tabLayers: 'Layers',
+    tabProperties: 'Properties',
+    tabHistory: 'History',
+    tools: 'Work tools',
+    textTools: 'Text tools',
+    textOptionsSimple: 'Simple',
+    textOptionsAdvanced: 'Advanced',
+    toolOptions: 'Tool options',
+    textLayers: 'Text layers',
+    addTextLayer: 'Add text layer',
+    addGroup: 'Add group',
+    groupName: 'Group',
+    noTextLayers: 'No text layers',
+    showLayer: 'Show or hide layer',
+    lockLayer: 'Lock or unlock layer',
+    moveLayerUp: 'Move layer up',
+    moveLayerDown: 'Move layer down',
+    moveToGroup: 'Move to group',
+    layerHidden: 'Hidden',
+    layerLocked: 'Locked',
+    historyPanel: 'History',
+    noHistory: 'No history entries.',
+    historyCurrent: 'Current',
+    historyAddText: 'Add text layer',
+    historyUpdateText: 'Update text',
+    historyEditInline: 'Edit text inline',
+    historyDeleteText: 'Delete text layer',
+    historyMoveText: 'Move text layer',
+    historyTransformText: 'Transform text layer',
+    historyClearTexts: 'Clear texts',
+    historyToggleVisible: 'Toggle layer visibility',
+    historyToggleLock: 'Toggle layer lock',
+    historyMoveLayer: 'Move layer',
+    historyCrop: 'Crop asset',
+    historyAiRestore: 'AI restore',
+    historyAiEraser: 'AI eraser',
+    historyRemoveAsset: 'Remove asset',
+    historyReorderAssets: 'Reorder assets',
+    historyClearAssets: 'Clear all assets',
+    historyJumpCheckpoint: 'Jump checkpoint',
+    historyUndoCheckpoint: 'Undo checkpoint',
+    historyRedoCheckpoint: 'Redo checkpoint',
+    deleteHistory: 'Delete history',
+    fontWeightLabel: 'Weight',
+    fontWeightRegular: 'Regular',
+    fontWeightBold: 'Bold',
+    italicLabel: 'Italic',
+    opacity: 'Opacity',
+    restoreHint: 'Paint with brush and release mouse to run AI restore automatically.',
+    eraserHint: 'Paint with brush to instantly fill using nearby colors.',
+    brushSize: 'Brush size',
+    exportQuality: 'Export quality',
+    exportQualityHint: 'Higher = sharper exports, more CPU/memory.',
+    exportDialogTitle: 'Export settings',
+    exportDialogDesc: 'Choose format and quality.',
+    exportFormat: 'Format',
+    exportNow: 'Export (Save)',
+    cancel: 'Cancel',
+    selectedText: 'Selected text',
+    noSelectedText: 'Select text to see detailed controls.',
+    modeRestore: 'Mode: AI Restore',
+    modeEraser: 'Mode: AI Eraser',
+    modeText: 'Mode: Text Insert',
+    modeCrop: 'Mode: Crop',
+    textSelectMode: 'Text select',
+    crop: 'Crop',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    zoomReset: 'Reset zoom',
+    cropSelection: 'Crop area',
+    cropX: 'X',
+    cropY: 'Y',
+    cropWidth: 'Width',
+    cropHeight: 'Height',
+    applyCrop: 'Apply crop',
+    cancelCrop: 'Clear area',
+    cropHint: 'Drag on canvas or enter exact values.',
+    cropDone: 'Crop applied',
+    macroCount: 'Repeat count',
+    macroRun: 'Apply latest AI restore area to all files',
+    macroHint: 'Applies the latest brush region to the same position on all files.',
+    macroNoStroke: 'No recent brush region to repeat',
+    font: 'Font',
+    size: 'Size',
+    color: 'Color',
+    rotation: 'Rotation',
+    align: 'Align',
+    alignLeft: 'Left',
+    alignCenter: 'Center',
+    alignRight: 'Right',
+    deleteText: 'Delete text',
+    selectTextHint: 'Click a text item on canvas or click `Add text`.',
+    ready: 'Ready',
+    importing: 'Importing…',
+    importingStatus: 'Importing files',
+    imported: (n: number) => `Imported ${n} page(s)`,
+    maskEmpty: 'No brush trace',
+    inpainting: 'Running AI restore…',
+    done: 'Done',
+    exporting: 'Exporting…',
+    exportedPng: 'Exported PNG',
+    exportingPdf: 'Exporting PDF…',
+    noPages: 'No pages to export',
+    exportedPdf: 'Exported PDF',
+    dropHint: 'Drop image/PDF files to import instantly',
+    reorderHint: 'Drag file cards to reorder pages.',
+    guideTitle: 'Quick Start Guide',
+    guideStepImport: 'Import files from the left panel or drag and drop.',
+    guideStepTool: 'Pick AI Restore / AI Eraser / Text / Crop from the left tool dock.',
+    guideStepRun: 'Paint with brush and release to run AI restore instantly.',
+    guideStepExport: 'Save results with Export (Save) under the history panel.',
+    guideMetaImport: 'Files panel · drag and drop',
+    guideMetaTool: 'Shortcut: B / E / T / C',
+    guideMetaRun: 'Drag brush and release to run',
+    guideMetaExport: 'Bottom of history panel',
+    guideClose: 'Close guide',
+    guideShow: 'Show guide',
+    settings: 'Settings',
+    settingsTitle: 'Settings',
+    settingsClose: 'Close',
+    settingsGuide: 'Show guide',
+    settingsLanguage: 'Language',
+    settingsAiDefault: 'Default AI engine',
+    settingsAiRestoreDefault: 'Default AI Restore engine',
+    settingsBrushDefault: 'Default brush size',
+    settingsAutoSave: 'Autosave interval (sec)',
+    settingsShortcutTips: 'Show shortcut tooltips',
+    settingsTooltipDensity: 'Tooltip density',
+    settingsTooltipSimple: 'Simple',
+    settingsTooltipDetailed: 'Detailed',
+    settingsAnimationStrength: 'Animation strength',
+    settingsAnimationLow: 'Low',
+    settingsAnimationDefault: 'Default',
+    settingsAnimationHigh: 'High',
+    settingsUiDensity: 'UI density',
+    settingsDensityDefault: 'Default',
+    settingsDensityCompact: 'Compact',
+    settingsAutoSaveOff: 'Off',
+    settingsTabGeneral: 'General',
+    settingsTabEditing: 'Editing',
+    settingsTabInfo: 'Info',
+    settingsLastAutoSave: 'Last autosave',
+    settingsNoAutoSave: 'Autosave off',
+    activityLog: 'Activity log',
+    activityShow: 'Show log',
+    activityHide: 'Hide log',
+    activityEmpty: 'No activity logs yet.',
+    activityFilterAll: 'All',
+    activityFilterError: 'Error',
+    activityFilterSuccess: 'Done',
+    activityFilterWorking: 'Working',
+    activityKindAi: 'AI',
+    activityKindExport: 'Export',
+    activityKindText: 'Text',
+    activityKindSystem: 'System',
+    quickBarMove: 'Move quick bar',
+    quickBarToggle: 'Toggle quick bar',
+    cancelTask: 'Cancel task',
+    taskCancelled: 'Task cancelled',
+    settingsInfo: 'Developer info',
+    settingsVersion: 'Version',
+    settingsDeveloper: 'Developer',
+    settingsRepo: 'Repository',
+    settingsCopyDiagnostics: 'Copy diagnostics',
+    settingsCopiedDiagnostics: 'Diagnostics copied',
+    restorePromptTitle: 'Autosaved work found',
+    restorePromptBody: 'Do you want to restore your previous editing state?',
+    restorePromptRestore: 'Restore',
+    restorePromptDiscard: 'Skip',
+    settingsName: 'sn0wmankr',
+  },
+} as const
+
 function App() {
+  const [locale, setLocale] = useState<Locale>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-locale')
+      if (saved && SUPPORTED_LOCALES.includes(saved as Locale)) return saved as Locale
+    } catch {
+      // ignore
+    }
+    return 'ko'
+  })
+  const ui = UI[locale]
   const [assets, setAssets] = useState<PageAsset[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [assetListHistoryPast, setAssetListHistoryPast] = useState<AssetListHistoryEntry[]>([])
+  const [assetListHistoryFuture, setAssetListHistoryFuture] = useState<AssetListHistoryEntry[]>([])
   const active = useMemo(() => assets.find((a) => a.id === activeId) ?? null, [assets, activeId])
 
-  const [tool, setTool] = useState<Tool>('brush')
-  const engine: Engine = 'auto'
-  const [brushSize, setBrushSize] = useState(34)
-  const [maskMode, setMaskMode] = useState<MaskMode>('add')
+  const [tool, setTool] = useState<Tool>('restore')
+  const [canvasZoom, setCanvasZoom] = useState(1)
+  const [brushSize, setBrushSize] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem('lamivi-brush-size'))
+      if (Number.isFinite(saved)) return clamp(Math.round(saved), BRUSH_MIN, BRUSH_MAX)
+    } catch {
+      // ignore
+    }
+    return 150
+  })
   const [exportPixelRatio, setExportPixelRatio] = useState(2)
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
   const selectedText = useMemo(
@@ -152,7 +889,83 @@ function App() {
   )
 
   const [busy, setBusy] = useState<string | null>(null)
-  const [status, setStatus] = useState('Ready')
+  const [status, setStatus] = useState<string>(ui.ready)
+  const [toast, setToast] = useState<string | null>(null)
+  const [aiDevice, setAiDevice] = useState<string>('initializing')
+  const [aiReady, setAiReady] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiRequestedDevice, setAiRequestedDevice] = useState<'auto' | 'cpu' | 'cuda'>('auto')
+  const [cudaAvailable, setCudaAvailable] = useState<boolean | null>(null)
+  const [switchingDevice, setSwitchingDevice] = useState(false)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [pendingExportFormat, setPendingExportFormat] = useState<ExportKind>('png')
+  const [pendingExportRatio, setPendingExportRatio] = useState(2)
+  const [macroRepeatCount, setMacroRepeatCount] = useState(1)
+  const [dragAssetId, setDragAssetId] = useState<string | null>(null)
+  const [dragOverAssetId, setDragOverAssetId] = useState<string | null>(null)
+  const [showGuide, setShowGuide] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-show-guide') !== '0'
+    } catch {
+      return true
+    }
+  })
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
+  const [showActivityLog, setShowActivityLog] = useState(false)
+  const [toastLog, setToastLog] = useState<ToastLogItem[]>([])
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all')
+  const [activityNow, setActivityNow] = useState<number>(() => Date.now())
+  const [preferredDevice, setPreferredDevice] = useState<'cpu' | 'cuda'>(() => {
+    try {
+      const legacy = window.localStorage.getItem('lamivi-preferred-device')
+      const saved = window.localStorage.getItem('lamivi-preferred-device-restore')
+      const value = saved ?? legacy
+      return value === 'cuda' ? 'cuda' : 'cpu'
+    } catch {
+      return 'cpu'
+    }
+  })
+  const [autoSaveSeconds, setAutoSaveSeconds] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem('lamivi-autosave-sec'))
+      if (Number.isFinite(saved)) return clamp(Math.round(saved), 0, 300)
+    } catch {
+      // ignore
+    }
+    return 60
+  })
+  const [showShortcutTips, setShowShortcutTips] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-shortcut-tips') !== '0'
+    } catch {
+      return true
+    }
+  })
+  const [tooltipsMuted, setTooltipsMuted] = useState(false)
+  const [tooltipDensity, setTooltipDensity] = useState<TooltipDensity>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-tooltip-density') === 'simple' ? 'simple' : 'detailed'
+    } catch {
+      return 'detailed'
+    }
+  })
+  const [animationStrength, setAnimationStrength] = useState<AnimationStrength>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-animation-strength')
+      if (saved === 'low' || saved === 'high' || saved === 'default') return saved
+    } catch {
+      // ignore
+    }
+    return 'high'
+  })
+  const [uiDensity, setUiDensity] = useState<UiDensity>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-ui-density') === 'compact' ? 'compact' : 'default'
+    } catch {
+      return 'default'
+    }
+  })
 
   const stageRef = useRef<Konva.Stage | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
@@ -161,24 +974,63 @@ function App() {
   const [baseImg, setBaseImg] = useState<HTMLImageElement | null>(null)
 
   const [dragGuides, setDragGuides] = useState<{ x?: number; y?: number }>({})
+  const [dragMetrics, setDragMetrics] = useState<{ left: number; right: number; top: number; bottom: number } | null>(null)
+  const [cropRect, setCropRect] = useState<CropRect | null>(null)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; visible: boolean }>({
+    x: 0,
+    y: 0,
+    visible: false,
+  })
+  const [isFileDragOver, setIsFileDragOver] = useState(false)
+  const inpaintQueueRef = useRef<InpaintJob[]>([])
+  const inpaintRunningRef = useRef(false)
+  const debounceTimerRef = useRef<number | null>(null)
+  const cropStartRef = useRef<{ x: number; y: number } | null>(null)
+  const lastMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
+  const activeRef = useRef<PageAsset | null>(null)
+  const assetsRef = useRef<PageAsset[]>([])
+  const textTransformBaseRef = useRef<{ textId: string; fontSize: number; rectHeight: number } | null>(null)
+  const preferredAppliedRef = useRef(false)
+  const guideFlashTimerRef = useRef<number | null>(null)
+  const tooltipMuteTimerRef = useRef<number | null>(null)
+  const quickBarOffsetsRef = useRef<Record<string, { x: number; y: number }>>({})
+  const [guideFocusTarget, setGuideFocusTarget] = useState<'files' | 'tools' | 'canvas' | 'export' | null>(null)
+  const cancelRequestedRef = useRef(false)
+  const [lastAutoSaveAt, setLastAutoSaveAt] = useState<number | null>(null)
+  const [pendingAutoRestore, setPendingAutoRestore] = useState<AutoSavePayload | null>(null)
+  const [cancelableTask, setCancelableTask] = useState(false)
+  const [progressState, setProgressState] = useState<{
+    label: string
+    value: number
+    total: number
+    indeterminate?: boolean
+  } | null>(null)
+  const [quickBarOffset, setQuickBarOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [draggingQuickBar, setDraggingQuickBar] = useState(false)
+  const [quickBarCollapsed, setQuickBarCollapsed] = useState(false)
+  const [textOptionsMode, setTextOptionsMode] = useState<'simple' | 'advanced'>('simple')
+  const quickBarDragRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null)
 
   const fit = useMemo(() => {
     if (!active) return { scale: 1, ox: 0, oy: 0 }
     const padding = 24
     const cw = Math.max(1, wrapSize.w - padding * 2)
     const ch = Math.max(1, wrapSize.h - padding * 2)
-    const scale = Math.min(cw / active.width, ch / active.height)
+    const baseScale = Math.min(cw / active.width, ch / active.height)
+    const scale = baseScale * canvasZoom
     const w = active.width * scale
     const h = active.height * scale
     const ox = (wrapSize.w - w) / 2
     const oy = (wrapSize.h - h) / 2
     return { scale, ox, oy }
-  }, [active, wrapSize])
+  }, [active, wrapSize, canvasZoom])
 
   useEffect(() => {
     setSelectedTextId(null)
+    setCropRect(null)
+    cropStartRef.current = null
     if (!active) {
       setBaseImg(null)
       return
@@ -186,12 +1038,299 @@ function App() {
     loadHtmlImage(active.baseDataUrl)
       .then((img) => setBaseImg(img))
       .catch(() => setBaseImg(null))
+  }, [activeId, active?.baseDataUrl])
+
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
+
+  useEffect(() => {
+    assetsRef.current = assets
+  }, [assets])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-locale', locale)
+    } catch {
+      // ignore
+    }
+  }, [locale])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-show-guide', showGuide ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [showGuide])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-brush-size', String(clamp(Math.round(brushSize), BRUSH_MIN, BRUSH_MAX)))
+    } catch {
+      // ignore
+    }
+  }, [brushSize])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-autosave-sec', String(clamp(Math.round(autoSaveSeconds), 0, 300)))
+    } catch {
+      // ignore
+    }
+  }, [autoSaveSeconds])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-shortcut-tips', showShortcutTips ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [showShortcutTips])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setTooltipsMuted(true)
+      if (tooltipMuteTimerRef.current !== null) {
+        window.clearTimeout(tooltipMuteTimerRef.current)
+      }
+      tooltipMuteTimerRef.current = window.setTimeout(() => {
+        setTooltipsMuted(false)
+        tooltipMuteTimerRef.current = null
+      }, 1800)
+    }
+    const onPointerMove = () => {
+      if (!tooltipsMuted) return
+      setTooltipsMuted(false)
+      if (tooltipMuteTimerRef.current !== null) {
+        window.clearTimeout(tooltipMuteTimerRef.current)
+        tooltipMuteTimerRef.current = null
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointermove', onPointerMove)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointermove', onPointerMove)
+    }
+  }, [tooltipsMuted])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-tooltip-density', tooltipDensity)
+    } catch {
+      // ignore
+    }
+  }, [tooltipDensity])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-animation-strength', animationStrength)
+    } catch {
+      // ignore
+    }
+  }, [animationStrength])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-ui-density', uiDensity)
+    } catch {
+      // ignore
+    }
+  }, [uiDensity])
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('lamivi-autosave')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { assets?: PageAsset[]; activeId?: string | null; ts?: number }
+      if (!Array.isArray(parsed.assets) || parsed.assets.length === 0) return
+      const ts = typeof parsed.ts === 'number' && Number.isFinite(parsed.ts) ? parsed.ts : Date.now()
+      setPendingAutoRestore({
+        assets: parsed.assets,
+        activeId: parsed.activeId ?? parsed.assets[0]?.id ?? null,
+        ts,
+      })
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    if (autoSaveSeconds <= 0) return
+    const timer = window.setInterval(() => {
+      try {
+        window.localStorage.setItem(
+          'lamivi-autosave',
+          JSON.stringify({
+            ts: Date.now(),
+            activeId,
+            assets,
+          }),
+        )
+        setLastAutoSaveAt(Date.now())
+      } catch {
+        // ignore
+      }
+    }, autoSaveSeconds * 1000)
+    return () => window.clearInterval(timer)
+  }, [autoSaveSeconds, assets, activeId])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-preferred-device-restore', preferredDevice)
+    } catch {
+      // ignore
+    }
+  }, [preferredDevice])
+
+  useEffect(() => {
+    if (preferredAppliedRef.current) return
+    if (aiRequestedDevice !== 'auto' && aiRequestedDevice === preferredDevice) {
+      preferredAppliedRef.current = true
+      return
+    }
+    if (preferredDevice === 'cuda' && cudaAvailable === false) {
+      preferredAppliedRef.current = true
+      return
+    }
+    preferredAppliedRef.current = true
+    void setDeviceMode(preferredDevice)
+  }, [aiRequestedDevice, preferredDevice, cudaAvailable])
+
+  useEffect(() => {
+    return () => {
+      if (guideFlashTimerRef.current !== null) {
+        window.clearTimeout(guideFlashTimerRef.current)
+      }
+      if (tooltipMuteTimerRef.current !== null) {
+        window.clearTimeout(tooltipMuteTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showActivityLog) return
+    const timer = window.setInterval(() => setActivityNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [showActivityLog])
+
+  useEffect(() => {
+    const saved = selectedTextId ? quickBarOffsetsRef.current[selectedTextId] : null
+    setQuickBarOffset(saved ?? { x: 0, y: 0 })
+    setDraggingQuickBar(false)
+    setQuickBarCollapsed(false)
+    quickBarDragRef.current = null
+  }, [selectedTextId, activeId, tool])
+
+  useEffect(() => {
+    setCanvasZoom(1)
   }, [activeId])
+
+  useEffect(() => {
+    if (!draggingQuickBar) return
+    const onMove = (event: MouseEvent) => {
+      const drag = quickBarDragRef.current
+      if (!drag) return
+      setQuickBarOffset({
+        x: drag.originX + (event.clientX - drag.pointerX),
+        y: drag.originY + (event.clientY - drag.pointerY),
+      })
+    }
+    const onUp = () => {
+      if (selectedTextId) {
+        quickBarOffsetsRef.current[selectedTextId] = quickBarOffset
+      }
+      setDraggingQuickBar(false)
+      quickBarDragRef.current = null
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [draggingQuickBar, quickBarOffset, selectedTextId])
+
+  useEffect(() => {
+    if (busy) {
+      setToast(busy)
+      return
+    }
+    if (!status || status === ui.ready) return
+    setToast(status)
+    const timer = window.setTimeout(() => setToast(null), 2300)
+    return () => window.clearTimeout(timer)
+  }, [busy, status, ui.ready])
+
+  useEffect(() => {
+    if (!toast) return
+    setToastLog((prev) => {
+      const next: ToastLogItem = {
+        id: uid('log'),
+        text: toast,
+        tone: statusTone(toast),
+        at: Date.now(),
+        assetId: activeRef.current?.id ?? null,
+        snapshot: activeRef.current ? serializeSnapshot(snapshotFrom(activeRef.current)) : null,
+      }
+      return [next, ...prev].slice(0, 5)
+    })
+  }, [toast])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadHealth() {
+      try {
+        const res = await fetch('/api/health')
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          worker?: {
+            device?: string
+            ready?: boolean
+            error?: string | null
+            warning?: string | null
+            requestedDevice?: 'auto' | 'cpu' | 'cuda'
+            cudaAvailable?: boolean | null
+          }
+        }
+        const device = data.worker?.device
+        const ready = data.worker?.ready
+        const error = data.worker?.error
+        const requestedDevice = data.worker?.requestedDevice
+        const cudaAvail = data.worker?.cudaAvailable
+        if (!cancelled && device) {
+          setAiDevice(device)
+        }
+        if (!cancelled && typeof ready === 'boolean') {
+          setAiReady(ready)
+        }
+        if (!cancelled) {
+          setAiError(error ?? null)
+          if (requestedDevice === 'auto' || requestedDevice === 'cpu' || requestedDevice === 'cuda') {
+            setAiRequestedDevice(requestedDevice)
+          }
+          if (typeof cudaAvail === 'boolean' || cudaAvail === null) {
+            setCudaAvailable(cudaAvail ?? null)
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    void loadHealth()
+    const t = window.setInterval(loadHealth, 7000)
+    return () => {
+      cancelled = true
+      window.clearInterval(t)
+    }
+  }, [])
 
   useEffect(() => {
     const tr = transformerRef.current
     if (!tr) return
-    if (!active || !selectedTextId) {
+    if (!active || !selectedTextId || !!editingTextId) {
       tr.nodes([])
       tr.getLayer()?.batchDraw()
       return
@@ -201,12 +1340,73 @@ function App() {
       tr.nodes([node])
       tr.getLayer()?.batchDraw()
     }
-  }, [activeId, selectedTextId, active])
+  }, [activeId, selectedTextId, active, editingTextId])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        return
+      }
+
+      const key = e.key.toLowerCase()
+      const meta = e.metaKey || e.ctrlKey
+
+      if (meta && key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undoRestore()
+        return
+      }
+      if (meta && ((key === 'z' && e.shiftKey) || key === 'y')) {
+        e.preventDefault()
+        redoRestore()
+        return
+      }
+      if (key === 't') {
+        e.preventDefault()
+        setTool('text')
+        return
+      }
+      if (key === 'b') {
+        e.preventDefault()
+        setTool('restore')
+        return
+      }
+      if (key === 'c') {
+        e.preventDefault()
+        setTool('crop')
+        return
+      }
+      if (key === 'e') {
+        e.preventDefault()
+        setTool('eraser')
+        return
+      }
+      if ((key === 'delete' || key === 'backspace') && selectedText) {
+        if (selectedText.locked) return
+        e.preventDefault()
+        const id = selectedText.id
+        updateActiveWithHistory('Delete text layer', (a) => ({ ...a, texts: a.texts.filter((t) => t.id !== id) }))
+        setSelectedTextId(null)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedText, active])
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [])
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
-    setBusy('Importing…')
-    setStatus('Importing files')
+    setBusy(ui.importing)
+    setStatus(ui.importingStatus)
     try {
       const imported: PageAsset[] = []
       for (const file of Array.from(files)) {
@@ -220,8 +1420,7 @@ function App() {
               height: p.height,
               baseDataUrl: p.dataUrl,
               maskStrokes: [],
-              maskUndo: [],
-              maskRedo: [],
+              groups: [{ ...DEFAULT_GROUP }],
               texts: [],
             })
           }
@@ -234,8 +1433,7 @@ function App() {
             height: img.height,
             baseDataUrl: img.dataUrl,
             maskStrokes: [],
-            maskUndo: [],
-            maskRedo: [],
+            groups: [{ ...DEFAULT_GROUP }],
             texts: [],
           })
         }
@@ -246,10 +1444,214 @@ function App() {
         return next
       })
       if (!activeId && imported[0]) setActiveId(imported[0].id)
-      setStatus(`Imported ${imported.length} page(s)`) 
+      setStatus(ui.imported(imported.length))
     } finally {
       setBusy(null)
     }
+  }
+
+  function cloneAsset(asset: PageAsset): PageAsset {
+    return {
+      ...asset,
+      maskStrokes: asset.maskStrokes.map((stroke) => ({
+        ...stroke,
+        points: [...stroke.points],
+      })),
+      groups: asset.groups.map((group) => ({ ...group })),
+      texts: asset.texts.map((text) => ({ ...text })),
+    }
+  }
+
+  function snapshotAssetList(sourceAssets = assets, sourceActiveId = activeId): AssetListSnapshot {
+    return {
+      assets: sourceAssets.map(cloneAsset),
+      activeId: sourceActiveId,
+    }
+  }
+
+  function pushAssetListHistory(label: string, snapshot: AssetListSnapshot) {
+    const entry: AssetListHistoryEntry = {
+      label,
+      snapshot,
+      timestamp: Date.now(),
+    }
+    setAssetListHistoryPast((prev) => [...prev, entry].slice(-80))
+    setAssetListHistoryFuture([])
+  }
+
+  function restoreAssetListSnapshot(snapshot: AssetListSnapshot) {
+    setAssets(snapshot.assets.map(cloneAsset))
+    setActiveId(snapshot.activeId)
+    setSelectedTextId(null)
+  }
+
+  function undoAssetListChange() {
+    const prev = assetListHistoryPast[assetListHistoryPast.length - 1]
+    if (!prev) return false
+    const current = snapshotAssetList()
+    restoreAssetListSnapshot(prev.snapshot)
+    setAssetListHistoryPast((past) => past.slice(0, -1))
+    setAssetListHistoryFuture((future) => [...future, { label: prev.label, snapshot: current, timestamp: Date.now() }].slice(-80))
+    return true
+  }
+
+  function redoAssetListChange() {
+    const next = assetListHistoryFuture[assetListHistoryFuture.length - 1]
+    if (!next) return false
+    const current = snapshotAssetList()
+    restoreAssetListSnapshot(next.snapshot)
+    setAssetListHistoryFuture((future) => future.slice(0, -1))
+    setAssetListHistoryPast((past) => [...past, { label: next.label, snapshot: current, timestamp: Date.now() }].slice(-80))
+    return true
+  }
+
+  function removeAsset(id: string) {
+    const currentIndex = assets.findIndex((a) => a.id === id)
+    if (currentIndex < 0) return
+    pushAssetListHistory('Remove asset', snapshotAssetList())
+    const next = assets.filter((a) => a.id !== id)
+    setAssets(next)
+    if (activeId === id) {
+      const fallback = next[currentIndex] ?? next[currentIndex - 1] ?? null
+      setActiveId(fallback ? fallback.id : null)
+    }
+  }
+
+  function clearAllAssets() {
+    if (assets.length === 0) return
+    pushAssetListHistory('Clear all assets', snapshotAssetList())
+    setAssets([])
+    setActiveId(null)
+    setSelectedTextId(null)
+    setStatus(ui.done)
+  }
+
+  function reorderAssets(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return
+    const sourceIndex = assets.findIndex((a) => a.id === sourceId)
+    const targetIndex = assets.findIndex((a) => a.id === targetId)
+    if (sourceIndex < 0 || targetIndex < 0) return
+    pushAssetListHistory('Reorder assets', snapshotAssetList())
+    const next = [...assets]
+    const [moved] = next.splice(sourceIndex, 1)
+    next.splice(targetIndex, 0, moved)
+    setAssets(next)
+  }
+
+  function updateCropField(field: 'x' | 'y' | 'width' | 'height', value: number) {
+    if (!active) return
+    const base = cropRect ?? {
+      x: Math.round(active.width * 0.1),
+      y: Math.round(active.height * 0.1),
+      width: Math.round(active.width * 0.8),
+      height: Math.round(active.height * 0.8),
+    }
+    const next = normalizeCropRect({ ...base, [field]: Number.isFinite(value) ? value : 0 }, active.width, active.height)
+    setCropRect(next)
+  }
+
+  async function applyCrop() {
+    if (!active || !cropRect) return
+    const rect = normalizeCropRect(cropRect, active.width, active.height)
+    if (rect.width < 2 || rect.height < 2) return
+    setBusy(ui.applyCrop)
+    try {
+      const source = await loadHtmlImage(active.baseDataUrl)
+      const canvas = document.createElement('canvas')
+      canvas.width = rect.width
+      canvas.height = rect.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+      ctx.clearRect(0, 0, rect.width, rect.height)
+      ctx.drawImage(
+        source,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        0,
+        0,
+        rect.width,
+        rect.height,
+      )
+
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+      if (!blob) throw new Error('PNG로 변환하지 못했습니다.')
+      const nextUrl = await blobToDataUrl(blob)
+
+      updateActiveWithHistory('Crop asset', (a) => {
+        const right = rect.x + rect.width
+        const bottom = rect.y + rect.height
+        const nextTexts = a.texts
+          .filter((t) => t.x >= rect.x && t.x <= right && t.y >= rect.y && t.y <= bottom)
+          .map((t) => ({ ...t, x: t.x - rect.x, y: t.y - rect.y }))
+        const usedGroups = new Set(nextTexts.map((t) => t.groupId))
+        const nextGroups = a.groups.filter((g) => g.id === DEFAULT_GROUP.id || usedGroups.has(g.id))
+        return {
+          ...a,
+          width: rect.width,
+          height: rect.height,
+          baseDataUrl: nextUrl,
+          texts: nextTexts,
+          groups: nextGroups.length > 0 ? nextGroups : [{ ...DEFAULT_GROUP }],
+          maskStrokes: [],
+        }
+      })
+
+      setSelectedTextId(null)
+      setDragGuides({})
+      setDragMetrics(null)
+      setCropRect(null)
+      cropStartRef.current = null
+      setStatus(ui.cropDone)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function hasFilePayload(dt: DataTransfer): boolean {
+    return Array.from(dt.types).includes('Files')
+  }
+
+  function onDragOverRoot(e: DragEvent<HTMLDivElement>) {
+    if (!hasFilePayload(e.dataTransfer)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    if (!isFileDragOver) setIsFileDragOver(true)
+  }
+
+  function onDragLeaveRoot(e: DragEvent<HTMLDivElement>) {
+    if (!hasFilePayload(e.dataTransfer)) return
+    const next = e.relatedTarget as Node | null
+    if (next && e.currentTarget.contains(next)) return
+    setIsFileDragOver(false)
+  }
+
+  function onDropRoot(e: DragEvent<HTMLDivElement>) {
+    if (!hasFilePayload(e.dataTransfer)) return
+    e.preventDefault()
+    setIsFileDragOver(false)
+    void handleFiles(e.dataTransfer.files)
+  }
+
+  function onAssetDragStart(e: DragEvent<HTMLDivElement>, id: string) {
+    setDragAssetId(id)
+    setDragOverAssetId(id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  function onAssetDragEnter(e: DragEvent<HTMLDivElement>, targetId: string) {
+    e.preventDefault()
+    if (!dragAssetId || dragAssetId === targetId) return
+    setDragOverAssetId(targetId)
+  }
+
+  function onAssetDrop(e: DragEvent<HTMLDivElement>, targetId: string) {
+    e.preventDefault()
+    if (!dragAssetId) return
+    reorderAssets(dragAssetId, targetId)
+    setDragAssetId(null)
+    setDragOverAssetId(null)
   }
 
   function updateActive(mutator: (a: PageAsset) => PageAsset) {
@@ -257,82 +1659,326 @@ function App() {
     setAssets((prev) => prev.map((a) => (a.id === active.id ? mutator(a) : a)))
   }
 
-  function clearMask() {
-    if (!active) return
-    updateActive((a) => {
-      if (a.maskStrokes.length === 0) return a
-      const nextUndo = [...a.maskUndo, a.maskStrokes]
-      return { ...a, maskStrokes: [], maskUndo: nextUndo.slice(-80), maskRedo: [] }
-    })
+  function snapshotFrom(a: PageAsset): PageSnapshot {
+    return {
+      width: a.width,
+      height: a.height,
+      baseDataUrl: a.baseDataUrl,
+      texts: a.texts.map((t) => ({ ...t })),
+      groups: a.groups.map((g) => ({ ...g })),
+    }
   }
 
-  function undoMask() {
-    if (!active) return
-    updateActive((a) => {
-      const prev = a.maskUndo[a.maskUndo.length - 1]
-      if (!prev) return a
-      const nextUndo = a.maskUndo.slice(0, -1)
-      const nextRedo = [...a.maskRedo, a.maskStrokes].slice(-80)
-      return { ...a, maskStrokes: prev, maskUndo: nextUndo, maskRedo: nextRedo }
-    })
+  function serializeSnapshot(s: PageSnapshot): string {
+    return JSON.stringify(s)
   }
 
-  function redoMask() {
+  function parseSnapshot(raw: string): PageSnapshot | null {
+    try {
+      const parsed = JSON.parse(raw) as PageSnapshot
+      if (
+        !parsed ||
+        typeof parsed.baseDataUrl !== 'string' ||
+        typeof parsed.width !== 'number' ||
+        typeof parsed.height !== 'number' ||
+        !Array.isArray(parsed.texts) ||
+        !Array.isArray(parsed.groups)
+      ) {
+        return null
+      }
+      return {
+        width: parsed.width,
+        height: parsed.height,
+        baseDataUrl: parsed.baseDataUrl,
+        texts: parsed.texts.map((t) => ({ ...t })),
+        groups: parsed.groups.map((g) => ({ ...g })),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  function updateAssetByIdWithHistory(assetId: string, label: string, mutator: (a: PageAsset) => PageAsset) {
+    pushAssetListHistory(label, snapshotAssetList())
+    setAssets((prev) => prev.map((a) => (a.id === assetId ? mutator(a) : a)))
+  }
+
+  function updateActiveWithHistory(label: string, mutator: (a: PageAsset) => PageAsset) {
     if (!active) return
-    updateActive((a) => {
-      const next = a.maskRedo[a.maskRedo.length - 1]
-      if (!next) return a
-      const nextRedo = a.maskRedo.slice(0, -1)
-      const nextUndo = [...a.maskUndo, a.maskStrokes].slice(-80)
-      return { ...a, maskStrokes: next, maskUndo: nextUndo, maskRedo: nextRedo }
-    })
+    updateAssetByIdWithHistory(active.id, label, mutator)
   }
 
   function clearTexts() {
-    updateActive((a) => ({ ...a, texts: [] }))
+    updateActiveWithHistory('Clear texts', (a) => ({ ...a, texts: [] }))
     setSelectedTextId(null)
   }
 
-  function addText() {
+  function toggleLayerVisible(id: string) {
+    updateActiveWithHistory('Toggle layer visibility', (a) => ({
+      ...a,
+      texts: a.texts.map((t) => (t.id === id ? { ...t, visible: !t.visible } : t)),
+    }))
+  }
+
+  function toggleLayerLocked(id: string) {
+    updateActiveWithHistory('Toggle layer lock', (a) => ({
+      ...a,
+      texts: a.texts.map((t) => (t.id === id ? { ...t, locked: !t.locked } : t)),
+    }))
+  }
+
+  function moveLayer(id: string, direction: 'up' | 'down') {
+    updateActiveWithHistory('Move layer', (a) => {
+      const idx = a.texts.findIndex((t) => t.id === id)
+      if (idx < 0) return a
+      const target = direction === 'up' ? idx - 1 : idx + 1
+      if (target < 0 || target >= a.texts.length) return a
+      const texts = [...a.texts]
+      const [item] = texts.splice(idx, 1)
+      texts.splice(target, 0, item)
+      return { ...a, texts }
+    })
+  }
+
+  const historyTimeline = useMemo(() => {
+    if (assets.length === 0 && assetListHistoryPast.length === 0 && assetListHistoryFuture.length === 0) {
+      return [] as { key: string; label: string; active: boolean; snapshot: AssetListSnapshot | null; kind: 'past' | 'current' | 'future'; sourceIndex: number }[]
+    }
+    const past = assetListHistoryPast.map((h, idx) => ({
+      key: `p-${idx}-${h.timestamp}`,
+      label: h.label,
+      active: false,
+      snapshot: h.snapshot,
+      kind: 'past' as const,
+      sourceIndex: idx,
+    }))
+    const currentSnapshot = snapshotAssetList()
+    const current = [{ key: 'current', label: 'Current', active: true, snapshot: currentSnapshot, kind: 'current' as const, sourceIndex: -1 }]
+    const future = [...assetListHistoryFuture]
+      .reverse()
+      .map((h, idx) => ({
+        key: `f-${idx}-${h.timestamp}`,
+        label: h.label,
+        active: false,
+        snapshot: h.snapshot,
+        kind: 'future' as const,
+        sourceIndex: assetListHistoryFuture.length - 1 - idx,
+      }))
+    return [...past, ...current, ...future]
+  }, [assets, activeId, assetListHistoryPast, assetListHistoryFuture])
+
+  function localizeHistoryLabel(label: string) {
+    const map: Record<string, string> = {
+      Current: ui.historyCurrent,
+      'Add text layer': ui.historyAddText,
+      'Update text': ui.historyUpdateText,
+      'Edit text inline': ui.historyEditInline,
+      'Delete text layer': ui.historyDeleteText,
+      'Move text layer': ui.historyMoveText,
+      'Transform text layer': ui.historyTransformText,
+      'Clear texts': ui.historyClearTexts,
+      'Toggle layer visibility': ui.historyToggleVisible,
+      'Toggle layer lock': ui.historyToggleLock,
+      'Move layer': ui.historyMoveLayer,
+      'Crop asset': ui.historyCrop,
+      'AI restore': ui.historyAiRestore,
+      'AI eraser': ui.historyAiEraser,
+      'Remove asset': ui.historyRemoveAsset,
+      'Reorder assets': ui.historyReorderAssets,
+      'Clear all assets': ui.historyClearAssets,
+      'Jump checkpoint': ui.historyJumpCheckpoint,
+      'Undo checkpoint': ui.historyUndoCheckpoint,
+      'Redo checkpoint': ui.historyRedoCheckpoint,
+    }
+    return map[label] ?? label
+  }
+
+  function deleteHistoryEntry(index: number) {
+    const item = historyTimeline[index]
+    if (!item || item.kind === 'current') return
+    if (item.kind === 'past') {
+      setAssetListHistoryPast((prev) => prev.filter((_, idx) => idx !== item.sourceIndex))
+      return
+    }
+    setAssetListHistoryFuture((prev) => prev.filter((_, idx) => idx !== item.sourceIndex))
+  }
+
+  function jumpToHistory(index: number) {
+    const currentIndex = assetListHistoryPast.length
+    if (index === currentIndex) return
+    if (index < 0 || index >= historyTimeline.length) return
+
+    const target = historyTimeline[index]
+    const targetSnapshot = target?.snapshot
+    if (!targetSnapshot) return
+
+    const current = snapshotAssetList()
+    const merged = [
+      ...assetListHistoryPast,
+      { label: 'Jump checkpoint', snapshot: current, timestamp: Date.now() },
+      ...[...assetListHistoryFuture].reverse(),
+    ]
+    const nextPast = merged.slice(0, index)
+    const nextFuture = merged.slice(index + 1).reverse()
+    restoreAssetListSnapshot(targetSnapshot)
+    setAssetListHistoryPast(nextPast)
+    setAssetListHistoryFuture(nextFuture)
+  }
+
+  function undoRestore() {
+    if (undoAssetListChange()) {
+      setStatus(ui.undoAction)
+    }
+  }
+
+  function redoRestore() {
+    if (redoAssetListChange()) {
+      setStatus(ui.redoAction)
+    }
+  }
+
+  function addTextAt(x: number, y: number) {
     if (!active) return
-    const x = active.width * 0.12
-    const y = active.height * 0.18
     const item: TextItem = {
       id: uid('text'),
       x,
       y,
       ...DEFAULT_TEXT,
+      groupId: DEFAULT_GROUP.id,
     }
-    updateActive((a) => ({ ...a, texts: [...a.texts, item] }))
+    updateActiveWithHistory('Add text layer', (a) => ({ ...a, texts: [...a.texts, item] }))
     setSelectedTextId(item.id)
-    setTool('text')
+  }
+
+  function addTextLayer() {
+    if (!active) return
+    const count = active.texts.length
+    const x = active.width * 0.08
+    const y = clamp(active.height * 0.12 + count * 38, 24, active.height - 40)
+    addTextAt(x, y)
   }
 
   function updateSelectedText(patch: Partial<TextItem>) {
     if (!active || !selectedTextId) return
-    updateActive((a) => ({
+    const current = active.texts.find((t) => t.id === selectedTextId)
+    if (!current || current.locked) return
+    updateActiveWithHistory('Update text', (a) => ({
       ...a,
       texts: a.texts.map((t) => (t.id === selectedTextId ? { ...t, ...patch } : t)),
     }))
   }
 
-  // Drawing state
-  const drawing = useRef<{ strokeId: string } | null>(null)
+  function adjustNumberWithWheel(
+    e: ReactWheelEvent<HTMLInputElement>,
+    value: number,
+    min: number,
+    max: number,
+    step: number,
+    apply: (next: number) => void,
+  ) {
+    if (e.currentTarget !== document.activeElement) return
+    e.preventDefault()
+    const direction = e.deltaY < 0 ? 1 : -1
+    const multiplier = e.shiftKey ? 5 : 1
+    const next = clamp(value + direction * step * multiplier, min, max)
+    apply(next)
+  }
 
-  function pointerToImageXY(stage: Konva.Stage) {
+function cssColorToPptHex(color: string): string {
+  const hex = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  if (hex) {
+    const raw = hex[1]!
+    if (raw.length === 3) return raw.split('').map((c) => `${c}${c}`).join('').toUpperCase()
+    return raw.toUpperCase()
+  }
+  const rgb = color.match(/\d+/g)?.map(Number)
+  if (rgb && rgb.length >= 3) {
+    const r = clamp(Math.round(rgb[0] ?? 0), 0, 255)
+    const g = clamp(Math.round(rgb[1] ?? 0), 0, 255)
+    const b = clamp(Math.round(rgb[2] ?? 0), 0, 255)
+    return [r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('').toUpperCase()
+  }
+  return '111827'
+}
+
+function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { width: number; height: number } {
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      width: clamp(Math.round(item.fontSize * Math.max(2, text.length * 0.62)), 24, asset.width),
+      height: clamp(Math.round(item.fontSize * 1.35), 12, asset.height),
+    }
+  }
+
+  const weight = item.fontWeight >= 600 ? 'bold ' : ''
+  const italic = item.fontStyle === 'italic' ? 'italic ' : ''
+  const fontSize = clamp(Math.round(item.fontSize), 8, 320)
+  ctx.font = `${italic}${weight}${fontSize}px "${item.fontFamily}", "Pretendard", "Noto Sans KR", sans-serif`
+  const lines = text.split(/\r?\n/)
+  let maxWidth = 0
+  for (const line of lines) {
+    const w = Math.ceil(ctx.measureText(line || ' ').width)
+    if (w > maxWidth) maxWidth = w
+  }
+  const width = clamp(maxWidth + 12, 24, Math.max(24, asset.width - item.x))
+  const lineHeight = Math.max(14, Math.round(fontSize * 1.3))
+  const height = clamp(lineHeight * Math.max(1, lines.length), 14, Math.max(14, asset.height - item.y))
+  return { width, height }
+}
+
+  // Drawing state
+  const drawing = useRef<MaskStroke | null>(null)
+
+  function pointerToImageXY(stage: Konva.Stage, clampToBounds = true) {
     const p = stage.getPointerPosition()
     if (!p || !active) return null
     const x = (p.x - fit.ox) / fit.scale
     const y = (p.y - fit.oy) / fit.scale
+    if (!clampToBounds) return { x, y }
     return { x: clamp(x, 0, active.width), y: clamp(y, 0, active.height) }
   }
 
-  function onStageMouseDown() {
-    const stage = stageRef.current
-    if (!stage || !active) return
+  function updateBrushCursor(stage: Konva.Stage) {
+    if (!active || (tool !== 'restore' && tool !== 'eraser')) {
+      if (brushCursor.visible) {
+        setBrushCursor((prev) => ({ ...prev, visible: false }))
+      }
+      return
+    }
+    const raw = pointerToImageXY(stage, false)
+    if (!raw) {
+      setBrushCursor((prev) => ({ ...prev, visible: false }))
+      return
+    }
+    const inside = raw.x >= 0 && raw.y >= 0 && raw.x <= active.width && raw.y <= active.height
+    setBrushCursor({
+      x: clamp(raw.x, 0, active.width),
+      y: clamp(raw.y, 0, active.height),
+      visible: inside,
+    })
+  }
 
-    if (tool !== 'brush') {
-      if (tool === 'move') {
+  function onStageMouseDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    const stage = stageRef.current
+    if (!stage || !active || busy) return
+    setDragMetrics(null)
+
+    const targetClass = e.target.getClassName?.()
+    if (targetClass === 'Text' && tool === 'text') {
+      return
+    }
+
+    if (tool === 'crop') {
+      const xy = pointerToImageXY(stage)
+      if (!xy) return
+      cropStartRef.current = { x: xy.x, y: xy.y }
+      setCropRect({ x: xy.x, y: xy.y, width: 1, height: 1 })
+      return
+    }
+
+    if (tool === 'text') {
+      if (targetClass !== 'Text') {
         setSelectedTextId(null)
       }
       return
@@ -341,83 +1987,271 @@ function App() {
     const xy = pointerToImageXY(stage)
     if (!xy) return
     const id = uid('stroke')
-    const stroke: MaskStroke = { id, points: [xy.x, xy.y], strokeWidth: brushSize, mode: maskMode }
-    drawing.current = { strokeId: id }
-    updateActive((a) => {
-      const nextUndo = [...a.maskUndo, a.maskStrokes].slice(-80)
-      return { ...a, maskStrokes: [...a.maskStrokes, stroke], maskUndo: nextUndo, maskRedo: [] }
-    })
+    const stroke: MaskStroke = { id, points: [xy.x, xy.y], strokeWidth: brushSize }
+    drawing.current = stroke
+    updateActive((a) => ({ ...a, maskStrokes: [stroke] }))
   }
 
   function onStageMouseMove() {
     const stage = stageRef.current
     if (!stage || !active) return
+    updateBrushCursor(stage)
+
+    if (tool === 'crop') {
+      const start = cropStartRef.current
+      if (start) {
+        const xy = pointerToImageXY(stage)
+        if (!xy) return
+        setCropRect(rectFromPoints(start.x, start.y, xy.x, xy.y, active.width, active.height))
+      }
+      return
+    }
+
     const d = drawing.current
-    if (!d || tool !== 'brush') return
+    if (!d || (tool !== 'restore' && tool !== 'eraser')) return
     const xy = pointerToImageXY(stage)
     if (!xy) return
+    d.points = [...d.points, xy.x, xy.y]
+    drawing.current = d
     updateActive((a) => ({
       ...a,
       maskStrokes: a.maskStrokes.map((s) =>
-        s.id === d.strokeId ? { ...s, points: [...s.points, xy.x, xy.y] } : s,
+        s.id === d.id ? { ...s, points: [...s.points, xy.x, xy.y] } : s,
       ),
     }))
   }
 
-  function onStageMouseUp() {
-    drawing.current = null
-  }
-
-  async function runInpaint() {
-    if (!active) return
-    if (active.maskStrokes.length === 0) {
-      setStatus('Mask is empty')
+  async function onStageMouseUp() {
+    if (tool === 'crop') {
+      cropStartRef.current = null
       return
     }
-    setBusy('Inpainting…')
-    setStatus('Inpainting…')
+    const stroke = drawing.current
+    drawing.current = null
+    if (!stroke) return
+    if (tool === 'restore') {
+      enqueueInpaint([stroke])
+      return
+    }
+    if (tool === 'eraser') {
+      if (!active) return
+      await applyLocalEraserForAsset(active.id, [stroke])
+    }
+  }
+
+  function onStageMouseLeave() {
+    drawing.current = null
+    cropStartRef.current = null
+    setBrushCursor((prev) => ({ ...prev, visible: false }))
+    setDragMetrics(null)
+  }
+
+  async function runInpaintForAsset(assetId: string, strokes: MaskStroke[]) {
+    const target = assetsRef.current.find((asset) => asset.id === assetId)
+    if (!target) return
+    if (strokes.length === 0) {
+      return
+    }
+
+    const bounds = getInpaintBounds(strokes, target.width, target.height)
+    if (!bounds) {
+      return
+    }
     try {
-      const imageBlob = await dataUrlToBlob(active.baseDataUrl)
+      const translated = strokes.map((stroke) => ({
+        ...stroke,
+        points: stroke.points.map((value, idx) => (idx % 2 === 0 ? value - bounds.x : value - bounds.y)),
+      }))
+
+      const imageBlob = await renderAssetRegionToBlob(target, bounds)
       const maskBlob = await renderMaskToPng({
-        width: active.width,
-        height: active.height,
-        strokes: active.maskStrokes,
+        width: bounds.width,
+        height: bounds.height,
+        strokes: translated,
       })
 
-      const resultBlob = await inpaintViaApi({ image: imageBlob, mask: maskBlob, engine })
-      const resultUrl = URL.createObjectURL(resultBlob)
-      updateActive((a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [], maskUndo: [], maskRedo: [] }))
-      setStatus('Done')
+      const resultBlob = await inpaintViaApi({ image: imageBlob, mask: maskBlob })
+      const resultUrl = await mergeInpaintResult(target.baseDataUrl, bounds, resultBlob)
+      updateAssetByIdWithHistory(target.id, 'AI restore', (a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [] }))
     } catch (e) {
       setStatus(String(e instanceof Error ? e.message : e))
-    } finally {
-      setBusy(null)
     }
   }
 
-  async function exportPngCurrent() {
-    if (!active) return
-    setBusy('Exporting…')
+  async function applyLocalEraserForAsset(assetId: string, strokes: MaskStroke[]) {
+    const target = assetsRef.current.find((asset) => asset.id === assetId)
+    if (!target || strokes.length === 0) return
+    const bounds = getInpaintBounds(strokes, target.width, target.height)
+    if (!bounds) return
+
     try {
-      const dataUrl = await renderAssetToDataUrl(active, exportPixelRatio)
+      const baseImage = await loadHtmlImage(target.baseDataUrl)
+      const canvas = document.createElement('canvas')
+      canvas.width = target.width
+      canvas.height = target.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+
+      ctx.drawImage(baseImage, 0, 0)
+      const fillColor = dominantNeighborColor(ctx, target.width, target.height, bounds)
+      ctx.strokeStyle = fillColor
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+
+      for (const stroke of strokes) {
+        const pts = stroke.points
+        if (pts.length < 4) continue
+        ctx.lineWidth = stroke.strokeWidth
+        ctx.beginPath()
+        ctx.moveTo(pts[0] ?? 0, pts[1] ?? 0)
+        for (let i = 2; i < pts.length; i += 2) {
+          ctx.lineTo(pts[i] ?? 0, pts[i + 1] ?? 0)
+        }
+        ctx.stroke()
+      }
+
+      const resultUrl = canvas.toDataURL('image/png')
+      updateAssetByIdWithHistory(target.id, 'AI eraser', (a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [] }))
+    } catch (e) {
+      setStatus(String(e instanceof Error ? e.message : e))
+    }
+  }
+
+  function enqueueInpaint(strokes: MaskStroke[]) {
+    if (!active) return
+    const cloned = cloneStrokes(strokes)
+    inpaintQueueRef.current.push({ assetId: active.id, strokes: cloned })
+    lastMacroTemplateRef.current = normalizeStrokes(cloned, active.width, active.height)
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current)
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null
+      void processInpaintQueue()
+    }, 60)
+  }
+
+  async function processInpaintQueue() {
+    if (inpaintRunningRef.current) return
+    if (inpaintQueueRef.current.length === 0) return
+    inpaintRunningRef.current = true
+    runCancelableStart()
+    setBusy(ui.inpainting)
+    setStatus(ui.inpainting)
+    try {
+      const total = inpaintQueueRef.current.length
+      let doneCount = 0
+      setProgressState({ label: ui.inpainting, value: 0, total, indeterminate: false })
+      while (inpaintQueueRef.current.length > 0) {
+        if (cancelRequestedRef.current) break
+        const next = inpaintQueueRef.current.shift()
+        if (!next) continue
+        await runInpaintForAsset(next.assetId, next.strokes)
+        doneCount += 1
+        setProgressState({ label: ui.inpainting, value: doneCount, total, indeterminate: false })
+      }
+      setStatus(ui.done)
+    } finally {
+      inpaintRunningRef.current = false
+      inpaintQueueRef.current = []
+      setBusy(null)
+      setProgressState(null)
+      runCancelableEnd()
+    }
+  }
+
+  async function runMacroRepeatRestore() {
+    const template = lastMacroTemplateRef.current
+    if (!template || template.length === 0) {
+      setStatus(ui.macroNoStroke)
+      return
+    }
+    const repeat = clamp(Math.round(macroRepeatCount), 1, 10)
+    const targets = [...assetsRef.current]
+    if (targets.length === 0) return
+    const total = targets.length * repeat
+    let doneCount = 0
+    setBusy(ui.inpainting)
+    setStatus(ui.inpainting)
+    runCancelableStart()
+    setProgressState({ label: ui.inpainting, value: 0, total, indeterminate: false })
+    try {
+      for (let pass = 0; pass < repeat; pass += 1) {
+        if (cancelRequestedRef.current) break
+        for (const asset of targets) {
+          if (cancelRequestedRef.current) break
+          const mapped = denormalizeStrokes(template, asset.width, asset.height)
+          await runInpaintForAsset(asset.id, mapped)
+          doneCount += 1
+          setProgressState({ label: ui.inpainting, value: doneCount, total, indeterminate: false })
+        }
+      }
+      setStatus(ui.done)
+    } finally {
+      setBusy(null)
+      setProgressState(null)
+      runCancelableEnd()
+    }
+  }
+
+  async function exportPngCurrent(pixelRatio: number) {
+    if (!active) return
+    setBusy(ui.exporting)
+    setProgressState({ label: ui.exporting, value: 0, total: 1, indeterminate: true })
+    try {
+      const dataUrl = await renderAssetToDataUrl(active, pixelRatio)
       const blob = await dataUrlToBlob(dataUrl)
       downloadBlob(blob, `${active.name.replaceAll('#', '_')}.png`)
-      setStatus('Exported PNG')
+      setStatus(ui.exportedPng)
     } finally {
       setBusy(null)
+      setProgressState(null)
     }
   }
 
-  async function exportPdfAll() {
+  async function exportJpgCurrent(pixelRatio: number) {
+    if (!active) return
+    setBusy(ui.exporting)
+    setProgressState({ label: ui.exporting, value: 0, total: 1, indeterminate: true })
+    try {
+      const dataUrl = await renderAssetToDataUrl(active, pixelRatio, 'image/jpeg', 0.92)
+      const blob = await dataUrlToBlob(dataUrl)
+      downloadBlob(blob, `${active.name.replaceAll('#', '_')}.jpg`)
+      setStatus(ui.done)
+    } finally {
+      setBusy(null)
+      setProgressState(null)
+    }
+  }
+
+  async function exportWebpCurrent(pixelRatio: number) {
+    if (!active) return
+    setBusy(ui.exporting)
+    setProgressState({ label: ui.exporting, value: 0, total: 1, indeterminate: true })
+    try {
+      const dataUrl = await renderAssetToDataUrl(active, pixelRatio, 'image/webp', 0.92)
+      const blob = await dataUrlToBlob(dataUrl)
+      downloadBlob(blob, `${active.name.replaceAll('#', '_')}.webp`)
+      setStatus(ui.done)
+    } finally {
+      setBusy(null)
+      setProgressState(null)
+    }
+  }
+
+  async function exportPdfAll(pixelRatio: number) {
     if (assets.length === 0) return
-    setBusy('Exporting PDF…')
-    setStatus('Exporting PDF…')
+    setBusy(ui.exportingPdf)
+    setStatus(ui.exportingPdf)
+    runCancelableStart()
+    setProgressState({ label: ui.exportingPdf, value: 0, total: Math.max(1, assets.length), indeterminate: false })
     try {
       let pdf: jsPDF | null = null
 
       for (let idx = 0; idx < assets.length; idx++) {
+        if (cancelRequestedRef.current) break
         const a = assets[idx]!
-        const dataUrl = await renderAssetToDataUrl(a, exportPixelRatio)
+        const dataUrl = await renderAssetToDataUrl(a, pixelRatio, 'image/jpeg', 0.92)
 
         const pageW = a.width
         const pageH = a.height
@@ -430,15 +2264,82 @@ function App() {
         } else {
           pdf.addPage([pageW, pageH], pageW >= pageH ? 'landscape' : 'portrait')
         }
-        pdf.addImage(dataUrl, 'PNG', 0, 0, pageW, pageH)
+        pdf.addImage(dataUrl, 'JPEG', 0, 0, pageW, pageH)
+        setProgressState({ label: ui.exportingPdf, value: idx + 1, total: Math.max(1, assets.length), indeterminate: false })
       }
 
-      if (!pdf) throw new Error('No pages to export')
+      if (!pdf) throw new Error(ui.noPages)
+      if (cancelRequestedRef.current) {
+        setStatus(ui.taskCancelled)
+        return
+      }
       const blob = pdf.output('blob')
       downloadBlob(blob, 'lamivi-export.pdf')
-      setStatus('Exported PDF')
+      setStatus(ui.exportedPdf)
     } finally {
       setBusy(null)
+      setProgressState(null)
+      runCancelableEnd()
+    }
+  }
+
+  async function exportPptxAll(pixelRatio: number) {
+    if (assets.length === 0) return
+    setBusy(ui.exporting)
+    setStatus(ui.exporting)
+    runCancelableStart()
+    setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, assets.length), indeterminate: false })
+    try {
+      const pptx = new PptxGenJS()
+      pptx.layout = 'LAYOUT_WIDE'
+      for (let idx = 0; idx < assets.length; idx += 1) {
+        if (cancelRequestedRef.current) break
+        const asset = assets[idx]!
+        const slide = pptx.addSlide()
+        const baseOnly = { ...asset, texts: [] }
+        const dataUrl = await renderAssetToDataUrl(baseOnly, pixelRatio, 'image/png')
+        slide.addImage({ data: dataUrl, x: 0, y: 0, w: 13.33, h: 7.5 })
+        const sx = 13.33 / Math.max(1, asset.width)
+        const sy = 7.5 / Math.max(1, asset.height)
+
+        for (const t of asset.texts) {
+          if (!t.visible) continue
+          const text = t.text?.trim()
+          if (!text) continue
+          const box = estimateTextBoxPx(text, t, asset)
+          const x = clamp(t.x, 0, asset.width) * sx
+          const y = clamp(t.y, 0, asset.height) * sy
+          const w = clamp(box.width, 8, asset.width) * sx
+          const h = clamp(box.height, 8, asset.height) * sy
+          slide.addText(text, {
+            x,
+            y,
+            w,
+            h,
+            fontFace: t.fontFamily,
+            fontSize: clamp(t.fontSize * 0.75, 6, 220),
+            color: cssColorToPptHex(t.fill),
+            bold: t.fontWeight >= 600,
+            italic: t.fontStyle === 'italic',
+            align: t.align,
+            breakLine: true,
+            margin: 0,
+            valign: 'top',
+          })
+        }
+        setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, assets.length), indeterminate: false })
+      }
+      if (cancelRequestedRef.current) {
+        setStatus(ui.taskCancelled)
+        return
+      }
+      const out = (await pptx.write({ outputType: 'blob' })) as Blob
+      downloadBlob(out, 'lamivi-export.pptx')
+      setStatus(ui.done)
+    } finally {
+      setBusy(null)
+      setProgressState(null)
+      runCancelableEnd()
     }
   }
 
@@ -449,12 +2350,30 @@ function App() {
 
   function commitInlineEdit() {
     if (!editingTextId) return
+    if (selectedText?.locked) {
+      setEditingTextId(null)
+      return
+    }
+    const editedId = editingTextId
     const next = editingValue
-    updateActive((a) => ({
+    updateActiveWithHistory('Edit text inline', (a) => ({
       ...a,
-      texts: a.texts.map((t) => (t.id === editingTextId ? { ...t, text: next } : t)),
+      texts: a.texts.map((t) => (t.id === editedId ? { ...t, text: next } : t)),
     }))
     setEditingTextId(null)
+  }
+
+  async function confirmExport() {
+    if (!exportDialogOpen) return
+    const ratio = clamp(pendingExportRatio, 1, 3)
+    setExportPixelRatio(ratio)
+    const kind = pendingExportFormat
+    setExportDialogOpen(false)
+    if (kind === 'png') return await exportPngCurrent(ratio)
+    if (kind === 'jpg') return await exportJpgCurrent(ratio)
+    if (kind === 'webp') return await exportWebpCurrent(ratio)
+    if (kind === 'pdf') return await exportPdfAll(ratio)
+    return await exportPptxAll(ratio)
   }
 
   function cancelInlineEdit() {
@@ -469,6 +2388,12 @@ function App() {
 
     const guidesX = [0, asset.width / 2, asset.width]
     const guidesY = [0, asset.height / 2, asset.height]
+
+    for (const t of asset.texts) {
+      if (t.id === node.id() || !t.visible) continue
+      guidesX.push(t.x)
+      guidesY.push(t.y)
+    }
 
     let snappedX: number | undefined
     let snappedY: number | undefined
@@ -492,127 +2417,640 @@ function App() {
     }
 
     setDragGuides({ x: snappedX, y: snappedY })
+    setDragMetrics({
+      left: Math.max(0, Math.round(rect.x)),
+      right: Math.max(0, Math.round(asset.width - (rect.x + rect.width))),
+      top: Math.max(0, Math.round(rect.y)),
+      bottom: Math.max(0, Math.round(asset.height - (rect.y + rect.height))),
+    })
   }
 
-  const stageCursor = useMemo(() => {
-    if (tool === 'brush') return 'crosshair'
-    if (tool === 'text') return 'text'
-    return 'default'
-  }, [tool])
+  const stageCursor = tool === 'restore' || tool === 'eraser' ? 'none' : tool === 'crop' ? 'crosshair' : 'default'
+  const normalizedRestoreDevice = aiDevice.toLowerCase()
+  const restoreDeviceLabel = normalizedRestoreDevice.includes('cuda') || normalizedRestoreDevice.includes('gpu') ? 'GPU' : normalizedRestoreDevice.includes('cpu') ? 'CPU' : 'AUTO'
+  const aiStatusText = aiReady ? ui.aiReady : ui.aiInit
+  const gpuSelectable = cudaAvailable !== false
+  const selectedEngine = aiRequestedDevice === 'cuda' ? 'GPU' : 'CPU'
+  const selectedAvailable = selectedEngine === 'CPU' ? true : gpuSelectable
+  const canUndo = !busy && assetListHistoryPast.length > 0
+  const canRedo = !busy && assetListHistoryFuture.length > 0
+  const activeCropRect = active && cropRect ? normalizeCropRect(cropRect, active.width, active.height) : null
+  const brushSliderValue = brushToSlider(brushSize)
+  const filteredToastLog = useMemo(() => {
+    if (activityFilter === 'all') return toastLog
+    return toastLog.filter((item) => item.tone === activityFilter)
+  }, [activityFilter, toastLog])
+  const textQuickBarPos = useMemo(() => {
+    if (!selectedText || tool !== 'text' || !!editingTextId) return null
+    const x = fit.ox + selectedText.x * fit.scale + quickBarOffset.x
+    const y = fit.oy + selectedText.y * fit.scale - 44 + quickBarOffset.y
+    return {
+      left: clamp(x, 8, Math.max(8, wrapSize.w - 360)),
+      top: clamp(y, 8, Math.max(8, wrapSize.h - 46)),
+    }
+  }, [selectedText, tool, editingTextId, fit, wrapSize, quickBarOffset])
+  const tinyViewport = wrapSize.w <= 360
+
+  function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    quickBarDragRef.current = {
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      originX: quickBarOffset.x,
+      originY: quickBarOffset.y,
+    }
+    setDraggingQuickBar(true)
+  }
+
+  function statusTone(label: string): 'error' | 'success' | 'working' | 'info' {
+    if (/error|failed|오류|실패/i.test(label)) return 'error'
+    if (label === ui.done || label === ui.exportedPng || label === ui.exportedPdf || /완료|done/i.test(label)) return 'success'
+    if (label === ui.inpainting || label === ui.exporting || label === ui.exportingPdf || label === ui.importingStatus || /중|running|importing|exporting/i.test(label)) return 'working'
+    return 'info'
+  }
+
+  function statusIcon(label: string) {
+    const tone = statusTone(label)
+    if (tone === 'error') return '⚠'
+    if (tone === 'success') return '✓'
+    if (tone === 'working') return '◌'
+    return '•'
+  }
+
+  function runCancelableStart() {
+    cancelRequestedRef.current = false
+    setCancelableTask(true)
+  }
+
+  function runCancelableEnd() {
+    setCancelableTask(false)
+    cancelRequestedRef.current = false
+  }
+
+  function requestCancelTask() {
+    cancelRequestedRef.current = true
+    setStatus(ui.taskCancelled)
+  }
+
+  function applyPendingAutoRestore() {
+    if (!pendingAutoRestore) return
+    setAssets(pendingAutoRestore.assets)
+    setActiveId(pendingAutoRestore.activeId ?? pendingAutoRestore.assets[0]?.id ?? null)
+    setLastAutoSaveAt(pendingAutoRestore.ts)
+    setPendingAutoRestore(null)
+    setStatus(ui.ready)
+  }
+
+  function discardPendingAutoRestore() {
+    setPendingAutoRestore(null)
+    try {
+      window.localStorage.removeItem('lamivi-autosave')
+    } catch {
+      // ignore
+    }
+  }
+
+  function openSettings() {
+    setSettingsTab('general')
+    setSettingsOpen(true)
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false)
+  }
+
+  function flashGuideTarget(target: 'files' | 'tools' | 'canvas' | 'export') {
+    setGuideFocusTarget(target)
+    if (guideFlashTimerRef.current !== null) {
+      window.clearTimeout(guideFlashTimerRef.current)
+    }
+    guideFlashTimerRef.current = window.setTimeout(() => {
+      setGuideFocusTarget(null)
+      guideFlashTimerRef.current = null
+    }, 1600)
+  }
+
+  function formatTimestamp(ts: number | null) {
+    if (!ts) return ui.settingsNoAutoSave
+    return new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : 'en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date(ts))
+  }
+
+  function formatLogTimestamp(ts: number) {
+    return new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : 'en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date(ts))
+  }
+
+  function activityKindLabel(item: ToastLogItem) {
+    const text = item.text.toLowerCase()
+    if (text.includes('ai') || text.includes('복원')) return ui.activityKindAi
+    if (text.includes('export') || text.includes('내보내')) return ui.activityKindExport
+    if (text.includes('text') || text.includes('텍스트')) return ui.activityKindText
+    return ui.activityKindSystem
+  }
+
+  function jumpToActivity(item: ToastLogItem) {
+    if (!item.assetId) return
+    if (!assetsRef.current.some((asset) => asset.id === item.assetId)) return
+    setActiveId(item.assetId)
+    if (!item.snapshot) return
+    const parsed = parseSnapshot(item.snapshot)
+    if (!parsed) return
+    updateAssetByIdWithHistory(item.assetId, 'Jump checkpoint', (asset) => ({
+      ...asset,
+      width: parsed.width,
+      height: parsed.height,
+      baseDataUrl: parsed.baseDataUrl,
+      texts: parsed.texts,
+      groups: parsed.groups,
+      maskStrokes: [],
+    }))
+  }
+
+  async function copyDiagnostics() {
+    const lines = [
+      `app=${APP_VERSION}`,
+      `locale=${locale}`,
+      `preferredDevice=${preferredDevice}`,
+      `runtimeDevice=${aiDevice}`,
+      `aiReady=${String(aiReady)}`,
+      `aiError=${aiError ?? 'none'}`,
+      `brushSize=${brushSize}`,
+      `autoSaveSeconds=${autoSaveSeconds}`,
+      `showGuide=${String(showGuide)}`,
+      `showShortcutTips=${String(showShortcutTips)}`,
+      `tooltipDensity=${tooltipDensity}`,
+      `animationStrength=${animationStrength}`,
+      `uiDensity=${uiDensity}`,
+      `assets=${assets.length}`,
+      `activeId=${activeId ?? 'none'}`,
+    ]
+    const text = lines.join('\n')
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        ta.style.pointerEvents = 'none'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setStatus(ui.settingsCopiedDiagnostics)
+    } catch {
+      setStatus(text)
+    }
+  }
+
+  async function setDeviceMode(next: 'cpu' | 'cuda') {
+    if (switchingDevice) return
+    if (next === 'cuda' && !gpuSelectable) return
+    setSwitchingDevice(true)
+    try {
+      const res = await fetch('/api/device', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ target: 'restore', device: next }),
+      })
+      const payload = (await res.json()) as {
+        error?: string
+        worker?: { device?: string; ready?: boolean; error?: string | null; requestedDevice?: 'auto' | 'cpu' | 'cuda'; cudaAvailable?: boolean | null }
+      }
+      if (!res.ok) {
+        if (payload.error) setStatus(payload.error)
+        return
+      }
+      const worker = payload.worker
+      if (worker?.device) setAiDevice(worker.device)
+      if (typeof worker?.ready === 'boolean') setAiReady(worker.ready)
+      setAiError(worker?.error ?? null)
+      if (worker?.requestedDevice === 'auto' || worker?.requestedDevice === 'cpu' || worker?.requestedDevice === 'cuda') {
+        setAiRequestedDevice(worker.requestedDevice)
+      }
+      if (typeof worker?.cudaAvailable === 'boolean' || worker?.cudaAvailable === null) {
+        setCudaAvailable(worker?.cudaAvailable ?? null)
+      }
+      setPreferredDevice(next)
+    } catch (e) {
+      setStatus(String(e instanceof Error ? e.message : e))
+    } finally {
+      setSwitchingDevice(false)
+    }
+  }
 
   return (
-    <div className="app">
+    <div className={`app ${uiDensity === 'compact' ? 'densityCompact' : ''} ${showShortcutTips ? '' : 'shortcutsOff'} ${tooltipDensity === 'detailed' ? 'tooltipDetailed' : 'tooltipSimple'} ${tooltipsMuted ? 'tooltipsMuted' : ''} ${animationStrength === 'low' ? 'animLow' : animationStrength === 'high' ? 'animHigh' : ''}`} onDragOver={onDragOverRoot} onDragLeave={onDragLeaveRoot} onDrop={onDropRoot}>
       <div className="topbar">
         <div className="brand">
           <h1>Lamivi</h1>
-          <div className="tag">erase + add text · multi image/PDF</div>
         </div>
 
-        <div className="toolbar">
-          <label className="btn">
-            Import
-            <input
-              type="file"
-              multiple
-              accept="image/*,application/pdf,.pdf"
-              onChange={(e) => void handleFiles(e.target.files)}
-              style={{ display: 'none' }}
-            />
-          </label>
+        <div className="rightControls">
+          <div className={`deviceBadge ${aiError ? 'error' : aiReady ? 'ready' : 'init'} ${selectedAvailable ? 'available' : 'unavailable'} ${restoreDeviceLabel === 'GPU' ? 'gpu' : 'cpu'}`}>
+            <span className="deviceDot" />
+            <span>{ui.aiRestoreEngine}</span>
+            <span className="deviceEngineTag">{restoreDeviceLabel}</span>
+            <span className={`deviceAvailability ${aiReady ? 'ok' : 'bad'}`}>
+              {aiStatusText}
+            </span>
+          </div>
 
-          <button className={`btn ${tool === 'brush' ? 'selected' : ''}`} onClick={() => setTool('brush')}>
-            Brush
-          </button>
-          <button
-            className={`btn ${tool === 'brush' && maskMode === 'add' ? 'selected' : ''}`}
-            onClick={() => {
-              setTool('brush')
-              setMaskMode('add')
-            }}
-            disabled={!active}
-          >
-            Mask+
-          </button>
-          <button
-            className={`btn ${tool === 'brush' && maskMode === 'sub' ? 'selected' : ''}`}
-            onClick={() => {
-              setTool('brush')
-              setMaskMode('sub')
-            }}
-            disabled={!active}
-          >
-            Erase mask
-          </button>
-          <button className={`btn ${tool === 'text' ? 'selected' : ''}`} onClick={() => setTool('text')}>
-            Text
-          </button>
-          <button className={`btn ${tool === 'move' ? 'selected' : ''}`} onClick={() => setTool('move')}>
-            Move
+          <button className="activityBtn" onClick={() => setShowActivityLog((prev) => !prev)}>
+            {showActivityLog ? ui.activityHide : ui.activityShow}
           </button>
 
-          <button className="btn" onClick={addText} disabled={!active}>
-            Add text
-          </button>
-          <button className="btn" onClick={undoMask} disabled={!active || active.maskUndo.length === 0}>
-            Undo mask
-          </button>
-          <button className="btn" onClick={redoMask} disabled={!active || active.maskRedo.length === 0}>
-            Redo mask
-          </button>
-          <button className="btn danger" onClick={clearMask} disabled={!active || active.maskStrokes.length === 0}>
-            Clear mask
-          </button>
-          <button className="btn danger" onClick={clearTexts} disabled={!active || active.texts.length === 0}>
-            Clear texts
-          </button>
-
-          <button className="btn primary" onClick={() => void runInpaint()} disabled={!active || !!busy}>
-            Erase (AI)
-          </button>
-
-          <button className="btn" onClick={() => void exportPngCurrent()} disabled={!active || !!busy}>
-            Export PNG
-          </button>
-          <button className="btn" onClick={() => void exportPdfAll()} disabled={assets.length === 0 || !!busy}>
-            Export PDF
-          </button>
+          <div className="settingsWrap">
+            <button className="settingsBtn" onClick={() => (settingsOpen ? closeSettings() : openSettings())} aria-label={ui.settings} title={ui.settings}>
+              ⚙
+            </button>
+          </div>
         </div>
-
-        <div className="status">{busy ?? status}</div>
       </div>
 
-      <div className="main">
-        <div className="panel">
-          <div className="panelHeader">
-            <div className="title">Files</div>
+      {pendingAutoRestore ? (
+        <div className="restorePrompt" role="dialog" aria-modal="true">
+          <div className="restorePromptCard">
+            <div className="restorePromptTitle">{ui.restorePromptTitle}</div>
+            <div className="hint">{ui.restorePromptBody}</div>
+            <div className="hint">{ui.settingsLastAutoSave}: {formatTimestamp(pendingAutoRestore.ts)}</div>
+            <div className="restorePromptActions">
+              <button className="btn" onClick={applyPendingAutoRestore}>{ui.restorePromptRestore}</button>
+              <button className="btn ghost" onClick={discardPendingAutoRestore}>{ui.restorePromptDiscard}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {settingsOpen ? (
+        <div className="settingsBackdrop" onClick={closeSettings}>
+          <div className="settingsDialog" onClick={(e) => e.stopPropagation()}>
+            <div className="settingsHeader">
+              <div className="settingsTitle">{ui.settingsTitle}</div>
+              <button className="settingsCloseBtn" onClick={closeSettings}>{ui.settingsClose}</button>
+            </div>
+
+            <div className="settingsLayout">
+              <div className="settingsSidebar">
+                <div className="settingsTabs">
+                  <button className={`settingsTab ${settingsTab === 'general' ? 'active' : ''}`} onClick={() => setSettingsTab('general')}>
+                    {ui.settingsTabGeneral}
+                  </button>
+                  <button className={`settingsTab ${settingsTab === 'editing' ? 'active' : ''}`} onClick={() => setSettingsTab('editing')}>
+                    {ui.settingsTabEditing}
+                  </button>
+                  <button className={`settingsTab ${settingsTab === 'info' ? 'active' : ''}`} onClick={() => setSettingsTab('info')}>
+                    {ui.settingsTabInfo}
+                  </button>
+                </div>
+              </div>
+
+              <div className="settingsContent">
+            {settingsTab === 'general' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsLanguage}</div>
+              <select className="langSelect settingsLangSelect" value={locale} onChange={(e) => setLocale(e.target.value as Locale)} aria-label={ui.language}>
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.code} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsAiRestoreDefault}</div>
+              <select className="langSelect settingsLangSelect" value={preferredDevice} onChange={(e) => void setDeviceMode(e.target.value as 'cpu' | 'cuda')}>
+                <option value="cpu">{ui.aiSetCpu} ({ui.available})</option>
+                <option value="cuda" disabled={!gpuSelectable}>{ui.aiSetGpu} ({gpuSelectable ? ui.available : ui.unavailable})</option>
+              </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsBrushDefault}</div>
+              <div className="settingsInline">
+                <input
+                  className="input settingsNumberInput"
+                  type="number"
+                  min={BRUSH_MIN}
+                  max={BRUSH_MAX}
+                  value={brushSize}
+                  onChange={(e) => setBrushSize(clamp(Number(e.target.value) || BRUSH_MIN, BRUSH_MIN, BRUSH_MAX))}
+                />
+                <input
+                  className="input smoothRange"
+                  type="range"
+                  min={0}
+                  max={BRUSH_SLIDER_MAX}
+                  step={1}
+                  value={brushSliderValue}
+                  onChange={(e) => setBrushSize(sliderToBrush(Number(e.target.value)))}
+                />
+              </div>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsAutoSave}</div>
+              <select className="langSelect settingsLangSelect" value={String(autoSaveSeconds)} onChange={(e) => setAutoSaveSeconds(clamp(Number(e.target.value), 0, 300))}>
+                <option value="0">{ui.settingsAutoSaveOff}</option>
+                <option value="10">10s</option>
+                <option value="30">30s</option>
+                <option value="60">60s</option>
+                <option value="120">120s</option>
+              </select>
+              <div className="hint">{ui.settingsLastAutoSave}: {formatTimestamp(lastAutoSaveAt)}</div>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' ? (
+            <div className="settingsRow">
+              <label className="settingsToggle">
+                <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} />
+                <span>{ui.settingsGuide}</span>
+              </label>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className="settingsRow">
+              <label className="settingsToggle">
+                <input type="checkbox" checked={showShortcutTips} onChange={(e) => setShowShortcutTips(e.target.checked)} />
+                <span>{ui.settingsShortcutTips}</span>
+              </label>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsTooltipDensity}</div>
+              <select className="langSelect settingsLangSelect" value={tooltipDensity} onChange={(e) => setTooltipDensity(e.target.value as TooltipDensity)}>
+                <option value="simple">{ui.settingsTooltipSimple}</option>
+                <option value="detailed">{ui.settingsTooltipDetailed}</option>
+              </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsAnimationStrength}</div>
+              <select className="langSelect settingsLangSelect" value={animationStrength} onChange={(e) => setAnimationStrength(e.target.value as AnimationStrength)}>
+                <option value="low">{ui.settingsAnimationLow}</option>
+                <option value="default">{ui.settingsAnimationDefault}</option>
+                <option value="high">{ui.settingsAnimationHigh}</option>
+              </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsUiDensity}</div>
+              <select className="langSelect settingsLangSelect" value={uiDensity} onChange={(e) => setUiDensity(e.target.value as 'default' | 'compact')}>
+                <option value="default">{ui.settingsDensityDefault}</option>
+                <option value="compact">{ui.settingsDensityCompact}</option>
+              </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'info' ? (
+            <div className="settingsInfo">
+              <div className="settingsInfoTitle">{ui.settingsInfo}</div>
+              <div className="settingsInfoRow"><strong>{ui.settingsDeveloper}</strong><span>{ui.settingsName}</span></div>
+              <div className="settingsInfoRow"><strong>{ui.settingsVersion}</strong><span>{APP_VERSION}</span></div>
+              <div className="settingsInfoRow"><strong>{ui.settingsRepo}</strong><a href="https://sn0wman.kr" target="_blank" rel="noreferrer">sn0wman.kr</a></div>
+              <div className="settingsInfoActions">
+                <button className="btn" onClick={() => void copyDiagnostics()}>{ui.settingsCopyDiagnostics}</button>
+              </div>
+            </div>
+            ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className={`main ${assets.length === 0 ? 'emptyWorkbench' : ''}`}>
+        <div className={`panel ${guideFocusTarget === 'files' ? 'guideFlash' : ''}`}>
+            <div className="panelHeader">
+            <div className="title">{ui.files}</div>
           </div>
           <div className="panelBody">
             <div className="assetList">
               {assets.length === 0 ? (
                 <div className="hint">
-                  Import images or a PDF. PDF pages become separate editable pages.
+                  {ui.emptyFiles}
                 </div>
               ) : null}
               {assets.map((a) => (
                 <div
                   key={a.id}
-                  className={`asset ${a.id === activeId ? 'active' : ''}`}
+                  className={`asset ${a.id === activeId ? 'active' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
                   onClick={() => setActiveId(a.id)}
+                  draggable
+                  onDragStart={(e) => onAssetDragStart(e, a.id)}
+                  onDragEnter={(e) => onAssetDragEnter(e, a.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => onAssetDrop(e, a.id)}
+                  onDragEnd={() => {
+                    setDragAssetId(null)
+                    setDragOverAssetId(null)
+                  }}
                 >
                   <img className="thumb" src={a.baseDataUrl} alt={a.name} />
                   <div className="assetMeta">
-                    <div className="assetName">{a.name}</div>
+                    <div className="assetTopRow">
+                      <div className="assetName">{a.name}</div>
+                      <button
+                        className="assetRemoveBtn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeAsset(a.id)
+                        }}
+                        title={ui.removeAsset}
+                        aria-label={ui.removeAsset}
+                      >
+                        ×
+                      </button>
+                    </div>
                     <div className="assetSub">
-                      {a.width}×{a.height} · mask {a.maskStrokes.length} · text {a.texts.length}
+                      {ui.assetMeta(a.width, a.height, a.texts.length)}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
+          <div className="panelFooter centerActions">
+            <label className="btn">
+              {ui.import}
+              <input
+                type="file"
+                multiple
+                accept="image/*,application/pdf,.pdf"
+                onChange={(e) => void handleFiles(e.target.files)}
+                style={{ display: 'none' }}
+              />
+            </label>
+            <button className="btn danger" onClick={clearAllAssets} disabled={assets.length === 0 || !!busy}>
+              {ui.clearAllAssets}
+            </button>
+            <div className="footerHint">{ui.reorderHint}</div>
+          </div>
         </div>
 
-        <div className="canvasWrap" ref={wrapRef}>
+        <div className={`canvasWrap ${tool === 'text' ? 'textMode' : ''} ${tool === 'crop' ? 'cropMode' : ''} ${guideFocusTarget === 'canvas' ? 'guideFlash' : ''}`} ref={wrapRef}>
+          {active ? (
+            <div className={`leftDock ${guideFocusTarget === 'tools' ? 'guideFlash' : ''}`}>
+              <button
+                className={`iconDockBtn ${tool === 'restore' ? 'active' : ''}`}
+                title={ui.aiRestore}
+                aria-label={ui.aiRestore}
+                data-tip={ui.aiRestore}
+                data-key="B"
+                onClick={() => setTool('restore')}
+              >
+                ✨
+              </button>
+              <button
+                className={`iconDockBtn ${tool === 'eraser' ? 'active' : ''}`}
+                title={ui.aiEraser}
+                aria-label={ui.aiEraser}
+                data-tip={ui.aiEraser}
+                data-key="E"
+                onClick={() => setTool('eraser')}
+              >
+                ⌫
+              </button>
+              <button
+                className={`iconDockBtn ${tool === 'text' ? 'active' : ''}`}
+                title={ui.textSelectMode}
+                aria-label={ui.textSelectMode}
+                data-tip={ui.textSelectMode}
+                data-key="T"
+                onClick={() => setTool('text')}
+              >
+                T
+              </button>
+              <button
+                className={`iconDockBtn ${tool === 'crop' ? 'active' : ''}`}
+                title={ui.crop}
+                aria-label={ui.crop}
+                data-tip={ui.crop}
+                data-key="C"
+                onClick={() => setTool('crop')}
+              >
+                ▣
+              </button>
+              <button
+                className="iconDockBtn"
+                title={ui.undoAction}
+                aria-label={ui.undoAction}
+                data-tip={ui.undoAction}
+                data-key="Ctrl/Cmd+Z"
+                onClick={undoRestore}
+                disabled={!canUndo}
+              >
+                ↶
+              </button>
+              <button
+                className="iconDockBtn"
+                title={ui.redoAction}
+                aria-label={ui.redoAction}
+                data-tip={ui.redoAction}
+                data-key="Shift+Ctrl/Cmd+Z"
+                onClick={redoRestore}
+                disabled={!canRedo}
+              >
+                ↷
+              </button>
+            </div>
+          ) : null}
+          {active ? <div className="modeBadge">{tool === 'text' ? ui.modeText : tool === 'crop' ? ui.modeCrop : tool === 'restore' ? ui.modeRestore : ui.modeEraser}</div> : null}
+          {showGuide ? (
+            <div className="guideCard">
+              <button className="guideCardClose" onClick={() => setShowGuide(false)} aria-label={ui.guideClose} title={ui.guideClose}>×</button>
+              <div className="guideTitle">{ui.guideTitle}</div>
+              <button type="button" className="guideStep" onClick={() => flashGuideTarget('files')}>
+                <span className="guideNum">1</span>
+                <div className="guideContent">
+                  <p>{ui.guideStepImport}</p>
+                  <div className="guideMeta">{ui.guideMetaImport}</div>
+                </div>
+              </button>
+              <button type="button" className="guideStep" onClick={() => flashGuideTarget('tools')}>
+                <span className="guideNum">2</span>
+                <div className="guideContent">
+                  <p>{ui.guideStepTool}</p>
+                  <div className="guideMeta">{ui.guideMetaTool}</div>
+                </div>
+              </button>
+              <button type="button" className="guideStep" onClick={() => flashGuideTarget('canvas')}>
+                <span className="guideNum">3</span>
+                <div className="guideContent">
+                  <p>{ui.guideStepRun}</p>
+                  <div className="guideMeta">{ui.guideMetaRun}</div>
+                </div>
+              </button>
+              <button type="button" className="guideStep" onClick={() => flashGuideTarget('export')}>
+                <span className="guideNum">4</span>
+                <div className="guideContent">
+                  <p>{ui.guideStepExport}</p>
+                  <div className="guideMeta">{ui.guideMetaExport}</div>
+                </div>
+              </button>
+            </div>
+          ) : null}
+          {textQuickBarPos && selectedText ? (
+            <div
+              className={`textQuickBar ${draggingQuickBar ? 'dragging' : ''}`}
+              style={tinyViewport
+                ? { position: 'fixed', left: 10, right: 10, bottom: 10 }
+                : { left: textQuickBarPos.left, top: textQuickBarPos.top }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button type="button" className="quickBarHandle" onMouseDown={startQuickBarDrag} aria-label={ui.quickBarMove}><span aria-hidden="true">⋮⋮</span><span className="srOnly">{ui.quickBarMove}</span></button>
+              <button
+                type="button"
+                className="quickBarToggle"
+                aria-label={ui.quickBarToggle}
+                onClick={() => setQuickBarCollapsed((prev) => !prev)}
+              >
+                {quickBarCollapsed ? '▸' : '▾'}
+              </button>
+              {!quickBarCollapsed ? (
+                <>
+                  <div className="quickBarGroup">
+                    <button className={`iconMini ${selectedText.align === 'left' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'left' })} aria-label={ui.alignLeft}><span aria-hidden="true">↤</span><span className="srOnly">{ui.alignLeft}</span></button>
+                    <button className={`iconMini ${selectedText.align === 'center' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'center' })} aria-label={ui.alignCenter}><span aria-hidden="true">↔</span><span className="srOnly">{ui.alignCenter}</span></button>
+                    <button className={`iconMini ${selectedText.align === 'right' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'right' })} aria-label={ui.alignRight}><span aria-hidden="true">↦</span><span className="srOnly">{ui.alignRight}</span></button>
+                  </div>
+                  <div className="quickBarGroup">
+                    <button className="iconMini" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 400 })} aria-label={ui.fontWeightRegular}><span aria-hidden="true">R</span><span className="srOnly">{ui.fontWeightRegular}</span></button>
+                    <button className="iconMini" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 700 })} aria-label={ui.fontWeightBold}><span aria-hidden="true">B</span><span className="srOnly">{ui.fontWeightBold}</span></button>
+                    <button className={`iconMini ${selectedText.fontStyle === 'italic' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ fontStyle: selectedText.fontStyle === 'italic' ? 'normal' : 'italic' })} aria-label={ui.italicLabel}><span aria-hidden="true">I</span><span className="srOnly">{ui.italicLabel}</span></button>
+                  </div>
+                  <label className="quickColor">
+                    <input type="color" value={selectedText.fill} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ fill: e.target.value })} />
+                  </label>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           {active ? (
             <>
               {editingTextId && selectedText ? (
@@ -630,7 +3068,7 @@ function App() {
                       commitInlineEdit()
                     }
                   }}
-                  className="input"
+                  className="inlineEditor"
                   style={{
                     position: 'absolute',
                     zIndex: 10,
@@ -650,10 +3088,11 @@ function App() {
                 }}
               width={wrapSize.w}
               height={wrapSize.h}
-              onMouseDown={onStageMouseDown}
-              onMouseMove={onStageMouseMove}
-              onMouseUp={onStageMouseUp}
-              style={{ cursor: stageCursor }}
+               onMouseDown={onStageMouseDown}
+               onMouseMove={onStageMouseMove}
+               onMouseUp={onStageMouseUp}
+               onMouseLeave={onStageMouseLeave}
+               style={{ cursor: stageCursor }}
             >
               <Layer>
                 <Group x={fit.ox} y={fit.oy} scaleX={fit.scale} scaleY={fit.scale}>
@@ -666,28 +3105,29 @@ function App() {
 
               <Layer>
                 <Group x={fit.ox} y={fit.oy} scaleX={fit.scale} scaleY={fit.scale}>
-                  {active.texts.map((t) => (
+                  {active.texts.filter((t) => t.visible).map((t) => (
                     <Text
                       key={t.id}
+                      id={t.id}
                       x={t.x}
                       y={t.y}
                       text={t.text}
                       fontFamily={t.fontFamily}
                       fontSize={t.fontSize}
+                      fontStyle={toKonvaFontStyle(t)}
                       fill={t.fill}
                       rotation={t.rotation}
                       align={t.align}
-                      draggable={tool !== 'brush'}
+                      opacity={t.opacity}
+                      draggable={!t.locked}
                       ref={(node) => {
                         if (node) textNodeRefs.current[t.id] = node
                       }}
                       onClick={() => {
                         setSelectedTextId(t.id)
-                        setTool('text')
                       }}
                       onTap={() => {
                         setSelectedTextId(t.id)
-                        setTool('text')
                       }}
                       onDblClick={() => {
                         setSelectedTextId(t.id)
@@ -703,21 +3143,40 @@ function App() {
                         snapTextDuringDrag(e.target as Konva.Text, active)
                       }}
                       onDragEnd={(e) => {
+                        if (t.locked) return
                         setDragGuides({})
-                        updateActive((a) => ({
+                        setDragMetrics(null)
+                        updateActiveWithHistory('Move text layer', (a) => ({
                           ...a,
                           texts: a.texts.map((tt) =>
                             tt.id === t.id ? { ...tt, x: e.target.x(), y: e.target.y() } : tt,
                           ),
                         }))
                       }}
-                      onTransformEnd={(e) => {
+                      onTransformStart={(e) => {
                         const node = e.target as Konva.Text
-                        const scale = Math.max(0.2, Math.max(node.scaleX(), node.scaleY()))
-                        const nextFontSize = clamp(Math.round(t.fontSize * scale), 8, 240)
+                        const rect = node.getClientRect({ relativeTo: node.getParent() ?? undefined })
+                        textTransformBaseRef.current = {
+                          textId: t.id,
+                          fontSize: t.fontSize,
+                          rectHeight: Math.max(1, rect.height),
+                        }
+                      }}
+                      onTransformEnd={(e) => {
+                        if (t.locked) return
+                        setDragMetrics(null)
+                        const node = e.target as Konva.Text
+                        const base = textTransformBaseRef.current
+                        const rect = node.getClientRect({ relativeTo: node.getParent() ?? undefined })
+                        const scaleBased = Math.max(0.2, Math.max(Math.abs(node.scaleX()), Math.abs(node.scaleY())))
+                        const heightBased = base && base.textId === t.id ? Math.max(0.2, rect.height / Math.max(1, base.rectHeight)) : 1
+                        const ratio = Math.abs(scaleBased - 1) > 0.01 ? scaleBased : heightBased
+                        const sourceFontSize = base && base.textId === t.id ? base.fontSize : t.fontSize
+                        const nextFontSize = clamp(Math.round(sourceFontSize * ratio), 8, 240)
                         node.scaleX(1)
                         node.scaleY(1)
-                        updateActive((a) => ({
+                        textTransformBaseRef.current = null
+                        updateActiveWithHistory('Transform text layer', (a) => ({
                           ...a,
                           texts: a.texts.map((tt) =>
                             tt.id === t.id
@@ -732,8 +3191,8 @@ function App() {
                           ),
                         }))
                       }}
-                      stroke={selectedTextId === t.id ? 'rgba(100,210,255,0.85)' : undefined}
-                      strokeWidth={selectedTextId === t.id ? 2 : 0}
+                      stroke={selectedTextId === t.id && editingTextId !== t.id ? 'rgba(100,210,255,0.85)' : undefined}
+                      strokeWidth={selectedTextId === t.id && editingTextId !== t.id ? 2 : 0}
                       shadowColor={selectedTextId === t.id ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.35)'}
                       shadowBlur={selectedTextId === t.id ? 12 : 8}
                       shadowOpacity={0.9}
@@ -745,7 +3204,7 @@ function App() {
                       transformerRef.current = n
                     }}
                     rotateEnabled
-                    enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+                    enabledAnchors={['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']}
                     anchorSize={10}
                     borderStroke="rgba(100,210,255,0.85)"
                     borderDash={[4, 4]}
@@ -760,7 +3219,7 @@ function App() {
                     <Line
                       key={l.id}
                       points={l.points}
-                      stroke={l.mode === 'add' ? 'rgba(255, 86, 86, 0.70)' : 'rgba(100, 210, 255, 0.55)'}
+                      stroke="rgba(255, 86, 86, 0.70)"
                       strokeWidth={l.strokeWidth}
                       lineCap="round"
                       lineJoin="round"
@@ -774,145 +3233,522 @@ function App() {
                   {dragGuides.y !== undefined ? (
                     <Line points={[0, dragGuides.y, active.width, dragGuides.y]} stroke="rgba(100,210,255,0.35)" strokeWidth={1} />
                   ) : null}
+
+                  {dragMetrics ? (
+                    <>
+                      <Text x={6} y={6} text={`${dragMetrics.left}px`} fontSize={11} fill="rgba(160,220,255,0.95)" listening={false} />
+                      <Text x={active.width - 64} y={6} text={`${dragMetrics.right}px`} fontSize={11} fill="rgba(160,220,255,0.95)" listening={false} />
+                      <Text x={6} y={active.height - 18} text={`${dragMetrics.bottom}px`} fontSize={11} fill="rgba(160,220,255,0.95)" listening={false} />
+                      <Text x={active.width - 64} y={active.height - 18} text={`${dragMetrics.top}px`} fontSize={11} fill="rgba(160,220,255,0.95)" listening={false} />
+                    </>
+                  ) : null}
+
+                  {(tool === 'restore' || tool === 'eraser') && brushCursor.visible ? (
+                    <Circle
+                      x={brushCursor.x}
+                      y={brushCursor.y}
+                      radius={Math.max(3, brushSize / 2)}
+                      stroke="rgba(100,210,255,0.85)"
+                      strokeWidth={1.5}
+                      fill="rgba(100,210,255,0.12)"
+                      listening={false}
+                    />
+                  ) : null}
+
+                  {activeCropRect ? (
+                    <>
+                      <Rect x={0} y={0} width={active.width} height={activeCropRect.y} fill="rgba(7, 12, 18, 0.5)" listening={false} />
+                      <Rect
+                        x={0}
+                        y={activeCropRect.y + activeCropRect.height}
+                        width={active.width}
+                        height={Math.max(0, active.height - (activeCropRect.y + activeCropRect.height))}
+                        fill="rgba(7, 12, 18, 0.5)"
+                        listening={false}
+                      />
+                      <Rect x={0} y={activeCropRect.y} width={activeCropRect.x} height={activeCropRect.height} fill="rgba(7, 12, 18, 0.5)" listening={false} />
+                      <Rect
+                        x={activeCropRect.x + activeCropRect.width}
+                        y={activeCropRect.y}
+                        width={Math.max(0, active.width - (activeCropRect.x + activeCropRect.width))}
+                        height={activeCropRect.height}
+                        fill="rgba(7, 12, 18, 0.5)"
+                        listening={false}
+                      />
+                      <Rect
+                        x={activeCropRect.x}
+                        y={activeCropRect.y}
+                        width={activeCropRect.width}
+                        height={activeCropRect.height}
+                        stroke="rgba(100,210,255,0.95)"
+                        dash={[6, 5]}
+                        strokeWidth={2}
+                        listening={false}
+                      />
+                      <Text
+                        x={activeCropRect.x + 6}
+                        y={Math.max(4, activeCropRect.y - 20)}
+                        text={`${activeCropRect.width} × ${activeCropRect.height}`}
+                        fontSize={11}
+                        fill="rgba(203, 235, 255, 0.98)"
+                        listening={false}
+                      />
+                    </>
+                  ) : null}
                 </Group>
               </Layer>
               </Stage>
             </>
           ) : (
-            <div className="panelBody">
-              <div className="hint">Import an image or PDF to start.</div>
+            <div className="panelBody emptyCanvasBody">
+              <div className="emptyHero">
+                <div className="emptyHeroTitle">Lamivi</div>
+                <div className="emptyHeroSubtitle">{ui.heroSubtitle}</div>
+                <a className="emptyHeroRepo" href="https://sn0wman.kr" target="_blank" rel="noreferrer">
+                  {ui.heroRepo}
+                </a>
+              </div>
             </div>
           )}
         </div>
 
+        {assets.length > 0 ? (
+        <div className="rightStack">
         <div className="panel">
           <div className="panelHeader">
-            <div className="title">Controls</div>
+            <div className="title">{ui.controls}</div>
           </div>
           <div className="panelBody">
-            <div className="row">
-              <div className="label">AI erase</div>
-              <div className="hint">
-                LaMa-style erase is built into Lamivi Docker stack. Just paint mask and click `Erase (AI)`.
+            <div className={`row toolRow ${tool === 'text' ? 'textToolRow' : ''}`}>
+              <div className="label">{ui.toolOptions}</div>
+
+              {tool === 'restore' ? (
+                <>
+                  <div className="label">{ui.brushSize}</div>
+                  <div className="brushControlRow">
+                    <input
+                      className="input smoothRange"
+                      type="range"
+                      min={0}
+                      max={BRUSH_SLIDER_MAX}
+                      step={1}
+                      value={brushSliderValue}
+                      onChange={(e) => setBrushSize(sliderToBrush(Number(e.target.value)))}
+                    />
+                    <input
+                      className="input brushSizeInput"
+                      type="number"
+                      min={BRUSH_MIN}
+                      max={BRUSH_MAX}
+                      value={brushSize}
+                      onChange={(e) => setBrushSize(clamp(Number(e.target.value) || BRUSH_MIN, BRUSH_MIN, BRUSH_MAX))}
+                    />
+                  </div>
+                  <div className="hint">{brushSize}px · {ui.restoreHint}</div>
+                  <div className="macroControls">
+                    <div>
+                      <div className="label">{ui.macroCount}</div>
+                      <input
+                        className="input macroCountInput"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={macroRepeatCount}
+                        onChange={(e) => setMacroRepeatCount(clamp(Number(e.target.value), 1, 10))}
+                      />
+                    </div>
+                    <button className="btn primary macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatRestore()}>{ui.macroRun}</button>
+                  </div>
+                  <div className="hint">{ui.macroHint}</div>
+                </>
+              ) : null}
+
+              {tool === 'eraser' ? (
+                <>
+                  <div className="label">{ui.brushSize}</div>
+                  <div className="brushControlRow">
+                    <input
+                      className="input smoothRange"
+                      type="range"
+                      min={0}
+                      max={BRUSH_SLIDER_MAX}
+                      step={1}
+                      value={brushSliderValue}
+                      onChange={(e) => setBrushSize(sliderToBrush(Number(e.target.value)))}
+                    />
+                    <input
+                      className="input brushSizeInput"
+                      type="number"
+                      min={BRUSH_MIN}
+                      max={BRUSH_MAX}
+                      value={brushSize}
+                      onChange={(e) => setBrushSize(clamp(Number(e.target.value) || BRUSH_MIN, BRUSH_MIN, BRUSH_MAX))}
+                    />
+                  </div>
+                  <div className="hint">{brushSize}px · {ui.eraserHint}</div>
+                </>
+              ) : null}
+
+              {tool === 'text' ? (
+                <>
+                  <div className="buttonRow textToolActions">
+                    <button className="btn" onClick={addTextLayer} disabled={!active}>{ui.addTextLayer}</button>
+                    <button className="btn danger" onClick={clearTexts} disabled={!active || active.texts.length === 0}>{ui.clearTexts}</button>
+                    <button
+                      className="btn danger"
+                      disabled={!selectedText || selectedText.locked}
+                      onClick={() => {
+                        if (!selectedText) return
+                        const id = selectedText.id
+                        updateActiveWithHistory('Delete text layer', (a) => ({ ...a, texts: a.texts.filter((t) => t.id !== id) }))
+                        setSelectedTextId(null)
+                      }}
+                    >
+                      {ui.deleteText}
+                    </button>
+                  </div>
+                  <div className="tabs textOptionModeTabs">
+                    <button className={`tabBtn ${textOptionsMode === 'simple' ? 'active' : ''}`} onClick={() => setTextOptionsMode('simple')}>{ui.textOptionsSimple}</button>
+                    <button className={`tabBtn ${textOptionsMode === 'advanced' ? 'active' : ''}`} onClick={() => setTextOptionsMode('advanced')}>{ui.textOptionsAdvanced}</button>
+                  </div>
+                  {selectedText ? (
+                    <>
+                      <div className="textOptionGroup">
+                        <div className="label textOptionTitle">{ui.selectedText}</div>
+                        <input
+                          className="input"
+                          value={selectedText.text}
+                          disabled={selectedText.locked}
+                          onChange={(e) => updateSelectedText({ text: e.target.value })}
+                        />
+                      </div>
+                      <div className={`split textOptionGroup ${textOptionsMode === 'simple' ? 'textSplitSimple' : ''}`}>
+                        <div>
+                          <div className="label">{ui.font}</div>
+                          <select className="select" value={selectedText.fontFamily} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ fontFamily: e.target.value })}>
+                            {FONT_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <div className="label">{ui.size}</div>
+                          <input
+                            className="input"
+                            type="number"
+                            min={8}
+                            max={240}
+                            value={selectedText.fontSize}
+                            disabled={selectedText.locked}
+                            onChange={(e) => updateSelectedText({ fontSize: clamp(Number(e.target.value), 8, 240) })}
+                            onWheel={(e) => adjustNumberWithWheel(e, selectedText.fontSize, 8, 240, 1, (next) => updateSelectedText({ fontSize: next }))}
+                          />
+                        </div>
+                      </div>
+                      <div className={`split textOptionGroup ${textOptionsMode === 'simple' ? 'textSplitSimple' : ''}`}>
+                        <div>
+                          <div className="label">{ui.color}</div>
+                          <div className="colorField">
+                            <input
+                              className="input colorHex"
+                              value={selectedText.fill}
+                              disabled={selectedText.locked}
+                              onChange={(e) => updateSelectedText({ fill: e.target.value })}
+                            />
+                            <label className="colorPickerBtn">
+                              <input
+                                type="color"
+                                value={selectedText.fill}
+                                disabled={selectedText.locked}
+                                onChange={(e) => updateSelectedText({ fill: e.target.value })}
+                              />
+                              <span style={{ background: selectedText.fill }} />
+                            </label>
+                          </div>
+                          <div className="swatchRow">
+                            {COLOR_SWATCHES.map((color) => (
+                              <button
+                                key={color}
+                                className={`swatch ${selectedText.fill.toLowerCase() === color.toLowerCase() ? 'active' : ''}`}
+                                style={{ background: color }}
+                                disabled={selectedText.locked}
+                                onClick={() => updateSelectedText({ fill: color })}
+                                aria-label={color}
+                                title={color}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        {textOptionsMode === 'advanced' ? (
+                        <div>
+                          <div className="label">{ui.rotation}</div>
+                          <div className="rotationControlRow">
+                            <input
+                              className="input"
+                              type="number"
+                              min={-180}
+                              max={180}
+                              value={Math.round(selectedText.rotation)}
+                              disabled={selectedText.locked}
+                              onChange={(e) => updateSelectedText({ rotation: clamp(Number(e.target.value), -180, 180) })}
+                              onWheel={(e) => adjustNumberWithWheel(e, Math.round(selectedText.rotation), -180, 180, 1, (next) => updateSelectedText({ rotation: next }))}
+                            />
+                            <input className="input" type="range" min={-45} max={45} step={1} value={clamp(Math.round(selectedText.rotation), -45, 45)} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ rotation: Number(e.target.value) })} />
+                          </div>
+                        </div>
+                        ) : null}
+                      </div>
+                      <div className="textFormatRow textOptionGroup">
+                        <div>
+                          <div className="label">{ui.align}</div>
+                          <div className="buttonRow alignToggleRow">
+                            <button className={`btn ${selectedText.align === 'left' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'left' })} aria-label={ui.alignLeft}><span aria-hidden="true">↤</span><span className="srOnly">{ui.alignLeft}</span></button>
+                            <button className={`btn ${selectedText.align === 'center' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'center' })} aria-label={ui.alignCenter}><span aria-hidden="true">↔</span><span className="srOnly">{ui.alignCenter}</span></button>
+                            <button className={`btn ${selectedText.align === 'right' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'right' })} aria-label={ui.alignRight}><span aria-hidden="true">↦</span><span className="srOnly">{ui.alignRight}</span></button>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="label">{ui.fontWeightLabel}</div>
+                          <div className="weightControlRow">
+                            <input className="input" type="number" min={300} max={800} step={50} value={selectedText.fontWeight} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ fontWeight: clamp(Number(e.target.value), 300, 800) })} />
+                            <div className="buttonRow weightPresetRow">
+                              <button className="btn" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 400 })} aria-label={ui.fontWeightRegular}><span aria-hidden="true">N</span><span className="srOnly">{ui.fontWeightRegular}</span></button>
+                              <button className="btn" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 700 })} aria-label={ui.fontWeightBold}><span aria-hidden="true">B</span><span className="srOnly">{ui.fontWeightBold}</span></button>
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="label">{ui.italicLabel}</div>
+                          <button
+                            className={`btn textItalicBtn ${selectedText.fontStyle === 'italic' ? 'selected' : ''}`}
+                            disabled={selectedText.locked}
+                            onClick={() => updateSelectedText({ fontStyle: selectedText.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                            aria-label={ui.italicLabel}
+                          >
+                            <span aria-hidden="true">I</span>
+                            <span className="srOnly">{ui.italicLabel}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : <div className="hint">{ui.noSelectedText}</div>}
+                </>
+              ) : null}
+
+              {tool === 'crop' ? (
+                <>
+                  <div className="label">{ui.cropSelection}</div>
+                  <div className="cropGrid">
+                    <div>
+                      <div className="label">{ui.cropX}</div>
+                      <input className="input" type="number" min={0} max={Math.max(0, (active?.width ?? 1) - 1)} value={activeCropRect?.x ?? ''} onChange={(e) => updateCropField('x', Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <div className="label">{ui.cropY}</div>
+                      <input className="input" type="number" min={0} max={Math.max(0, (active?.height ?? 1) - 1)} value={activeCropRect?.y ?? ''} onChange={(e) => updateCropField('y', Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <div className="label">{ui.cropWidth}</div>
+                      <input className="input" type="number" min={1} max={Math.max(1, active?.width ?? 1)} value={activeCropRect?.width ?? ''} onChange={(e) => updateCropField('width', Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <div className="label">{ui.cropHeight}</div>
+                      <input className="input" type="number" min={1} max={Math.max(1, active?.height ?? 1)} value={activeCropRect?.height ?? ''} onChange={(e) => updateCropField('height', Number(e.target.value))} />
+                    </div>
+                  </div>
+                  <div className="buttonRow">
+                    <button className="btn primary" disabled={!active || !activeCropRect || !!busy} onClick={() => void applyCrop()}>{ui.applyCrop}</button>
+                    <button className="btn" disabled={!activeCropRect} onClick={() => { setCropRect(null); cropStartRef.current = null }}>{ui.cancelCrop}</button>
+                  </div>
+                  <div className="hint">{ui.cropHint}</div>
+                </>
+              ) : null}
+
+            </div>
+
+            {tool !== 'eraser' && tool !== 'restore' ? (
+            <div className="row layerRow">
+              <div className="label">{ui.textLayers}</div>
+              <div className="layerList layerListCompact">
+                {active && active.texts.length > 0 ? (
+                  active.texts.map((t, idx) => (
+                    <div key={t.id} className={`layerItem ${selectedTextId === t.id ? 'active' : ''}`}>
+                      <button className="layerMain" onClick={() => setSelectedTextId(t.id)} title={t.text}>
+                        <span className="layerIndex">T{idx + 1}</span>
+                        <span className="layerName">{t.text || 'Text'}</span>
+                        {!t.visible ? <span className="layerTag">{ui.layerHidden}</span> : null}
+                        {t.locked ? <span className="layerTag">{ui.layerLocked}</span> : null}
+                      </button>
+                      <div className="layerActions">
+                        <button className="iconMini" onClick={() => toggleLayerVisible(t.id)} title={ui.showLayer} aria-label={ui.showLayer}>{t.visible ? '👁' : '🚫'}</button>
+                        <button className="iconMini" onClick={() => toggleLayerLocked(t.id)} title={ui.lockLayer} aria-label={ui.lockLayer}>{t.locked ? '🔒' : '🔓'}</button>
+                        <button className="iconMini" onClick={() => moveLayer(t.id, 'up')} title={ui.moveLayerUp} aria-label={ui.moveLayerUp}>↑</button>
+                        <button className="iconMini" onClick={() => moveLayer(t.id, 'down')} title={ui.moveLayerDown} aria-label={ui.moveLayerDown}>↓</button>
+                        <button
+                          className="iconMini dangerMini"
+                          onClick={() => {
+                            updateActiveWithHistory('Delete text layer', (a) => ({ ...a, texts: a.texts.filter((tt) => tt.id !== t.id) }))
+                            if (selectedTextId === t.id) setSelectedTextId(null)
+                          }}
+                          title={ui.deleteText}
+                          aria-label={ui.deleteText}
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="hint">{ui.noTextLayers}</div>
+                )}
               </div>
             </div>
+            ) : null}
 
-            <div className="row">
-              <div className="label">Brush size</div>
-              <input
-                className="input"
-                type="range"
-                min={6}
-                max={120}
-                value={brushSize}
-                onChange={(e) => setBrushSize(Number(e.target.value))}
-              />
-              <div className="hint">{brushSize}px</div>
-            </div>
+          </div>
+        </div>
 
-            <div className="row">
-              <div className="label">Export quality</div>
-              <select
-                className="select"
-                value={String(exportPixelRatio)}
-                onChange={(e) => setExportPixelRatio(clamp(Number(e.target.value), 1, 3))}
-              >
-                <option value="1">1x</option>
-                <option value="2">2x</option>
-                <option value="3">3x</option>
-              </select>
-              <div className="hint">Higher = sharper exports, more CPU/memory.</div>
-            </div>
-
-            <div className="row">
-              <div className="label">Selected text</div>
-              {selectedText ? (
-                <>
-                  <input
-                    className="input"
-                    value={selectedText.text}
-                    onChange={(e) => updateSelectedText({ text: e.target.value })}
-                  />
-                  <div className="split">
-                    <div>
-                      <div className="label">Font</div>
-                      <select
-                        className="select"
-                        value={selectedText.fontFamily}
-                        onChange={(e) => updateSelectedText({ fontFamily: e.target.value })}
-                      >
-                        {FONT_FAMILIES.map((f) => (
-                          <option key={f} value={f}>
-                            {f}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <div className="label">Size</div>
-                      <input
-                        className="input"
-                        type="number"
-                        min={8}
-                        max={240}
-                        value={selectedText.fontSize}
-                        onChange={(e) => updateSelectedText({ fontSize: clamp(Number(e.target.value), 8, 240) })}
-                      />
-                    </div>
+        <div className="panel historyPanelBox">
+          <div className="panelHeader">
+            <div className="title">{ui.historyPanel}</div>
+          </div>
+          <div className="panelBody">
+            <div className="historyList historyListTall">
+              {historyTimeline.length > 0 ? (
+                historyTimeline.map((h, idx) => (
+                  <div key={h.key} className={`historyRow ${h.active ? 'active' : ''}`}>
+                    <button className="historyItem" onClick={() => jumpToHistory(idx)}>
+                      <span className="historyIndex">#{idx + 1}</span>
+                      <span className="historyLabel">{localizeHistoryLabel(h.label)}</span>
+                    </button>
+                    {!h.active ? (
+                      <button className="iconMini dangerMini" onClick={() => deleteHistoryEntry(idx)} aria-label={ui.deleteHistory} title={ui.deleteHistory}>
+                        🗑
+                      </button>
+                    ) : null}
                   </div>
-
-                  <div className="split">
-                    <div>
-                      <div className="label">Color</div>
-                      <input
-                        className="input"
-                        type="color"
-                        value={selectedText.fill}
-                        onChange={(e) => updateSelectedText({ fill: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <div className="label">Rotation</div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={selectedText.rotation}
-                        onChange={(e) => updateSelectedText({ rotation: Number(e.target.value) })}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="row">
-                    <div className="label">Align</div>
-                    <select
-                      className="select"
-                      value={selectedText.align}
-                      onChange={(e) => updateSelectedText({ align: e.target.value as TextItem['align'] })}
-                    >
-                      <option value="left">left</option>
-                      <option value="center">center</option>
-                      <option value="right">right</option>
-                    </select>
-                  </div>
-
-                  <button
-                    className="btn danger"
-                    onClick={() => {
-                      const id = selectedText.id
-                      updateActive((a) => ({ ...a, texts: a.texts.filter((t) => t.id !== id) }))
-                      setSelectedTextId(null)
-                    }}
-                  >
-                    Delete text
-                  </button>
-                </>
+                ))
               ) : (
-                <div className="hint">Click a text item on the canvas (or “Add text”).</div>
+                <div className="hint">{ui.noHistory}</div>
               )}
             </div>
           </div>
         </div>
+        <div className={`rightBottomActions ${guideFocusTarget === 'export' ? 'guideFlash' : ''}`}>
+          <div className="zoomDockHorizontal">
+            <button className="btn" onClick={() => setCanvasZoom((prev) => clamp(Number((prev - 0.1).toFixed(2)), 0.5, 3))} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
+            <button className="btn zoomValueBtn" onClick={() => setCanvasZoom(1)} title={ui.zoomReset} aria-label={ui.zoomReset}>{Math.round(canvasZoom * 100)}%</button>
+            <button className="btn" onClick={() => setCanvasZoom((prev) => clamp(Number((prev + 0.1).toFixed(2)), 0.5, 3))} title={ui.zoomIn} aria-label={ui.zoomIn}>＋</button>
+          </div>
+          <button
+            className="btn"
+            onClick={() => {
+              setPendingExportRatio(exportPixelRatio)
+              setPendingExportFormat('png')
+              setExportDialogOpen(true)
+            }}
+            disabled={assets.length === 0 || !!busy}
+          >
+            {ui.exportNow}
+          </button>
+        </div>
+        </div>
+        ) : null}
       </div>
+      {showActivityLog ? (
+        <div className="activityPanel">
+          <div className="activityPanelTitle">{ui.activityLog}</div>
+          <div className="activityFilterRow">
+            <button className={`tabBtn ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>{ui.activityFilterAll}</button>
+            <button className={`tabBtn ${activityFilter === 'error' ? 'active' : ''}`} onClick={() => setActivityFilter('error')}>{ui.activityFilterError}</button>
+            <button className={`tabBtn ${activityFilter === 'success' ? 'active' : ''}`} onClick={() => setActivityFilter('success')}>{ui.activityFilterSuccess}</button>
+            <button className={`tabBtn ${activityFilter === 'working' ? 'active' : ''}`} onClick={() => setActivityFilter('working')}>{ui.activityFilterWorking}</button>
+          </div>
+          <div className="activityPanelBody">
+            {filteredToastLog.length > 0 ? filteredToastLog.map((item) => {
+              const recent = activityNow - item.at <= 30_000
+              return (
+                <button
+                  key={item.id}
+                  className={`activityItem tone-${item.tone} ${recent ? 'recent' : ''} ${item.assetId ? 'jumpable' : ''}`}
+                  type="button"
+                  onClick={() => jumpToActivity(item)}
+                >
+                  <span className="activityDot" />
+                  <span className="activityText"><span className="activityKind">{activityKindLabel(item)}</span>{item.text}</span>
+                  <span className="activityTime">{formatLogTimestamp(item.at)}</span>
+                </button>
+              )
+            }) : (
+              <div className="hint">{ui.activityEmpty}</div>
+            )}
+          </div>
+        </div>
+      ) : null}
+      {isFileDragOver ? (
+        <div className="dropOverlay">
+          <div className="dropCard">{ui.dropHint}</div>
+        </div>
+      ) : null}
+      {exportDialogOpen ? (
+        <div className="dialogBackdrop" onClick={() => setExportDialogOpen(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dialogTitle">{ui.exportDialogTitle}</div>
+            <div className="dialogHint">{ui.exportDialogDesc}</div>
+            <div>
+              <div className="label">{ui.exportFormat}</div>
+              <select className="select" value={pendingExportFormat} onChange={(e) => setPendingExportFormat(e.target.value as ExportKind)}>
+                <option value="png">PNG</option>
+                <option value="jpg">JPG</option>
+                <option value="webp">WEBP</option>
+                <option value="pdf">PDF</option>
+                <option value="pptx">PPTX</option>
+              </select>
+            </div>
+            <select
+              className="select"
+              value={String(pendingExportRatio)}
+              onChange={(e) => setPendingExportRatio(clamp(Number(e.target.value), 1, 3))}
+            >
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="3">3x</option>
+            </select>
+            <div className="dialogActions">
+              <button className="btn" onClick={() => setExportDialogOpen(false)}>
+                {ui.cancel}
+              </button>
+              <button className="btn primary" onClick={() => void confirmExport()}>
+                {ui.exportNow}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {progressState ? (
+        <div className={`progressToast tone-${statusTone(progressState.label)}`}>
+          <div className="progressTitle"><span className="statusIcon">{statusIcon(progressState.label)}</span>{progressState.label}</div>
+          <div className="progressBarWrap">
+            <div
+              className={`progressBar ${progressState.indeterminate ? 'indeterminate' : ''}`}
+              style={{
+                width: progressState.indeterminate
+                  ? '100%'
+                  : `${Math.round((progressState.value / Math.max(1, progressState.total)) * 100)}%`,
+              }}
+            />
+          </div>
+          {!progressState.indeterminate ? (
+            <div className="progressMeta">
+              {progressState.value}/{progressState.total}
+            </div>
+          ) : null}
+          {cancelableTask ? (
+            <div className="progressActions">
+              <button className="btn ghost" onClick={requestCancelTask}>{ui.cancelTask}</button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {toast ? <div className={`toast tone-${statusTone(toast)}`}><span className="statusIcon">{statusIcon(toast)}</span>{toast}</div> : null}
     </div>
   )
 }

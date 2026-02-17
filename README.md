@@ -1,60 +1,92 @@
 # Lamivi
 
-## 한국어
+Lamivi is a browser-based AI image editing tool inspired by the practical workflow of IOPaint and powered by a built-in LaMa inpainting engine.
 
-Lamivi는 **LaMa 엔진이 내장된** 이미지/PDF 편집 도구입니다.
-
-- 여러 장 이미지 + PDF(페이지 분리) 불러오기
-- 브러시로 지울 영역 마스킹
-- LaMa 기반 AI 지우기
-- 텍스트 추가/드래그/폰트/크기/색/회전 조절
-- PNG/PDF 내보내기
-
-중요: `docker compose` 한 번으로 Lamivi 실행/테스트가 가능합니다.
-
-### 빠른 실행 (권장)
-
-```bash
-docker compose up --build
-```
-
-접속: `http://localhost:8000`
-
----
+Website: `https://sn0wman.kr`
 
 ## English
 
-Lamivi is an **integrated LaMa-based** image/PDF editor.
+### What Lamivi is
 
-- Multi-image + PDF import (PDF pages become editable pages)
-- Brush mask for erase regions
-- AI erase using embedded LaMa engine
-- Add draggable text (font/size/color/rotation)
-- Export PNG/PDF
+Lamivi focuses on fast, local-first editing for image restoration and cleanup:
 
-Important: `docker compose` is enough to run and test Lamivi.
+- Paint a region, release the mouse, and run AI restore immediately
+- Edit text layers directly on canvas (font, size, color, weight, italic, rotation, alignment)
+- Crop visually or with exact numeric controls
+- Import many images at once, and split PDFs into pages automatically
+- Export to PNG, JPG, WEBP, PDF, and PPTX
 
-### Quick Start (recommended)
+Lamivi is designed for creators and operators who need a practical inpainting toolchain with modern editing controls in one place.
+
+### Product direction
+
+- Inspired by IOPaint-style usability (fast brush-based editing loop)
+- Built around LaMa-based inpainting for high-quality content-aware fill
+- Docker-first runtime for reproducible local/remote deployment
+
+### Default experience (release baseline)
+
+Current default settings for first-time users:
+
+- Default brush size: `150`
+- Autosave interval: `60` seconds
+- Animation intensity: `High`
+- Quick start guide: `Enabled`
+
+Saved preferences in local storage still override defaults for returning users.
+
+## Quick Start (Docker)
 
 ```bash
 docker compose up --build
 ```
 
-Open: `http://localhost:8000`
+Open: `http://localhost:18743`
 
-## Local Dev (optional)
+## Docker Runtime
 
-### Server
-
-Requirements: Node.js 20+, Python 3.10+, pip
+### Build local image
 
 ```bash
-cd server
-npm install
-npm run dev
+docker build -t lamivi:local -f Dockerfile .
 ```
 
-### Web
+### Run with GPU (preferred)
+
+```bash
+docker run --rm --gpus all -p 18743:18743 lamivi:local
+```
+
+### Run with CPU fallback
+
+```bash
+docker run --rm -p 18743:18743 lamivi:local
+```
+
+### Runtime environment variables
+
+- `LAMIVI_DEVICE=auto|cpu|cuda`
+- `LAMIVI_PYTHON=/opt/venv-lama/bin/python`
+- `LAMIVI_WORKER_TIMEOUT_MS=600000`
+
+## DockerHub Publishing Reference
+
+This repository includes GitHub Actions for Docker Hub publishing:
+
+- Workflow: `.github/workflows/docker-publish.yml`
+- Target image pattern: `docker.io/<DOCKERHUB_USERNAME>/lamivi`
+- Main branch pushes publish `latest`, `dev`, and SHA tags
+
+## Local Development
+
+### Full stack
+
+```bash
+npm install
+npm run build
+```
+
+### Web only
 
 ```bash
 cd web
@@ -62,22 +94,28 @@ npm install
 npm run dev
 ```
 
-Open: `http://localhost:5173`
-
-## Docker Image Publishing
-
-Workflow: `.github/workflows/docker-publish.yml`
-
-Published targets:
-- `docker.io/<dockerhub-username>/lamivi:latest`
-- `docker.io/<dockerhub-username>/lamivi:dev`
-
-For Docker Hub publishing, set:
-1. Repository Variable: `DOCKERHUB_USERNAME`
-2. Repository Secret: `DOCKERHUB_TOKEN`
-
-Pull example:
+### Server only
 
 ```bash
-docker pull docker.io/<dockerhub-username>/lamivi:dev
+cd server
+npm install
+npm run dev
 ```
+
+## Add a New Language
+
+Language options live in `web/src/App.tsx`:
+
+1. Add a new item in `LANGUAGE_OPTIONS` (`code`, `label`, `flag`).
+2. Add a new locale block under `UI` with the same keys as existing locales.
+3. Extend `SUPPORTED_LOCALES` with the new locale code.
+
+## Korean
+
+Lamivi는 IOPaint의 실용적인 작업 흐름에서 영감을 받아, LaMa 엔진 기반 복원을 중심으로 만든 브라우저형 AI 이미지 편집 도구입니다.
+
+- 브러시로 칠한 뒤 마우스를 놓으면 즉시 AI 복원 실행
+- 텍스트 레이어 편집(글꼴/크기/색상/굵기/기울임/회전/정렬)
+- 시각적/수치 기반 잘라내기
+- 다중 이미지 및 PDF 페이지 자동 분리 불러오기
+- PNG/JPG/WEBP/PDF/PPTX 내보내기
