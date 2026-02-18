@@ -78,6 +78,10 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev'
 const BRUSH_MIN = 1
 const BRUSH_MAX = 2000
 const BRUSH_SLIDER_MAX = 1000
+const DEFAULT_BRUSH_SIZE = 150
+const DEFAULT_AUTOSAVE_SECONDS = 60
+const DEFAULT_ACTIVITY_LOG_LIMIT = 10
+const DEFAULT_EXPORT_QUALITY = 92
 const ERASER_COLOR_BUCKET_STEP = 8
 const ZOOM_MIN = 0.3
 const ZOOM_MAX = 5
@@ -652,6 +656,8 @@ const UI = {
     settingsBrushDefault: '기본 브러시 크기',
     settingsAutoSave: '자동 저장 주기(초)',
     settingsActivityLogLimit: '작업 로그 표시 개수',
+    settingsResetDefaults: '기본값으로 초기화',
+    settingsResetDone: '설정을 기본값으로 초기화했습니다',
     settingsShortcutTips: '단축키 툴팁 표시',
     settingsTooltipDensity: '툴팁 밀도',
     settingsTooltipSimple: '간단',
@@ -673,8 +679,10 @@ const UI = {
     activityShow: '로그 보기',
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
+    activityDownload: '로그 저장',
     activityClear: '로그 비우기',
     activityCopied: '작업 로그를 복사했습니다',
+    activityDownloaded: (name: string) => `로그 저장 완료: ${name}`,
     activityCleared: '작업 로그를 비웠습니다',
     activityEmpty: '아직 작업 로그가 없습니다.',
     activityFilterAll: '전체',
@@ -698,6 +706,7 @@ const UI = {
     settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
     unsavedWarn: '저장되지 않은 변경사항이 있습니다.',
     unsavedBadge: '미저장 변경',
+    unsavedUpdatedAt: (time: string) => `마지막 변경: ${time}`,
     errCanvasUnavailable: '캔버스를 사용할 수 없습니다.',
     errPngConvertFailed: 'PNG로 변환하지 못했습니다.',
     errImageLoadFailed: '이미지를 불러오지 못했습니다.',
@@ -712,6 +721,8 @@ const UI = {
     aiRuntimeDetail: (runtime: string, requested: string, selectedCount: number) => `실행: ${runtime} · 요청: ${requested} · 선택: ${selectedCount}개`,
     shortcutsHelp: '단축키 도움말',
     shortcutsToggleHint: '? 키로 열기/닫기',
+    shortcutsSearchPlaceholder: '단축키 검색',
+    shortcutsNoMatch: '검색 결과가 없습니다.',
     shortcutsClose: '닫기',
     shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Esc 선택해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
@@ -915,6 +926,8 @@ const UI = {
     settingsBrushDefault: 'Default brush size',
     settingsAutoSave: 'Autosave interval (sec)',
     settingsActivityLogLimit: 'Activity log item count',
+    settingsResetDefaults: 'Reset to defaults',
+    settingsResetDone: 'Settings reset to defaults',
     settingsShortcutTips: 'Show shortcut tooltips',
     settingsTooltipDensity: 'Tooltip density',
     settingsTooltipSimple: 'Simple',
@@ -936,8 +949,10 @@ const UI = {
     activityShow: 'Show log',
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
+    activityDownload: 'Save log',
     activityClear: 'Clear log',
     activityCopied: 'Activity log copied',
+    activityDownloaded: (name: string) => `Log saved: ${name}`,
     activityCleared: 'Activity log cleared',
     activityEmpty: 'No activity logs yet.',
     activityFilterAll: 'All',
@@ -961,6 +976,7 @@ const UI = {
     settingsCopiedDiagnostics: 'Diagnostics copied',
     unsavedWarn: 'You have unsaved changes.',
     unsavedBadge: 'Unsaved changes',
+    unsavedUpdatedAt: (time: string) => `Last updated: ${time}`,
     errCanvasUnavailable: 'Canvas is unavailable.',
     errPngConvertFailed: 'Failed to convert to PNG.',
     errImageLoadFailed: 'Failed to load image.',
@@ -975,6 +991,8 @@ const UI = {
     aiRuntimeDetail: (runtime: string, requested: string, selectedCount: number) => `Runtime: ${runtime} · Requested: ${requested} · Selected: ${selectedCount}`,
     shortcutsHelp: 'Shortcuts',
     shortcutsToggleHint: 'Toggle with ? key',
+    shortcutsSearchPlaceholder: 'Search shortcuts',
+    shortcutsNoMatch: 'No matching shortcuts.',
     shortcutsClose: 'Close',
     shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Esc Clear selection',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
@@ -1036,7 +1054,7 @@ function App() {
     } catch {
       // ignore
     }
-    return 150
+    return DEFAULT_BRUSH_SIZE
   })
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
   const selectedText = useMemo(
@@ -1084,7 +1102,7 @@ function App() {
       const saved = Number(window.localStorage.getItem('lamivi-export-quality'))
       return Number.isFinite(saved) ? clamp(Math.round(saved), 50, 100) : 92
     } catch {
-      return 92
+    return DEFAULT_EXPORT_QUALITY
     }
   })
   const [macroRepeatCount, setMacroRepeatCount] = useState(1)
@@ -1093,6 +1111,7 @@ function App() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
   const [flashAssetId, setFlashAssetId] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [lastDirtyAt, setLastDirtyAt] = useState<number | null>(null)
   const [showGuide, setShowGuide] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-show-guide') !== '0'
@@ -1126,7 +1145,7 @@ function App() {
     } catch {
       // ignore
     }
-    return 10
+    return DEFAULT_ACTIVITY_LOG_LIMIT
   })
   const [activityNow, setActivityNow] = useState<number>(() => Date.now())
   const [preferredDevice, setPreferredDevice] = useState<'cpu' | 'cuda'>(() => {
@@ -1146,7 +1165,7 @@ function App() {
     } catch {
       // ignore
     }
-    return 60
+    return DEFAULT_AUTOSAVE_SECONDS
   })
   const [showShortcutTips, setShowShortcutTips] = useState<boolean>(() => {
     try {
@@ -1157,6 +1176,7 @@ function App() {
   })
   const [tooltipsMuted, setTooltipsMuted] = useState(false)
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
+  const [shortcutsQuery, setShortcutsQuery] = useState('')
   const [macroRunningMode, setMacroRunningMode] = useState<'all' | 'selected' | null>(null)
   const [macroRunningTool, setMacroRunningTool] = useState<'restore' | 'eraser' | null>(null)
   const [tooltipDensity, setTooltipDensity] = useState<TooltipDensity>(() => {
@@ -1350,6 +1370,7 @@ function App() {
       return
     }
     setHasUnsavedChanges(true)
+    setLastDirtyAt(Date.now())
   }, [assets, activeId])
 
   useEffect(() => {
@@ -1587,6 +1608,12 @@ function App() {
     const timer = window.setInterval(() => setActivityNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [showActivityLog])
+
+  useEffect(() => {
+    if (!showShortcutsHelp) {
+      setShortcutsQuery('')
+    }
+  }, [showShortcutsHelp])
 
   useEffect(() => {
     try {
@@ -2741,6 +2768,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
       setHasUnsavedChanges(false)
+      setLastDirtyAt(null)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2766,6 +2794,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
       setHasUnsavedChanges(false)
+      setLastDirtyAt(null)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2791,6 +2820,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
       setHasUnsavedChanges(false)
+      setLastDirtyAt(null)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2839,6 +2869,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       downloadBlob(blob, filename)
       setStatus(ui.exportedFile(filename))
       setHasUnsavedChanges(false)
+      setLastDirtyAt(null)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2904,6 +2935,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       downloadBlob(out, filename)
       setStatus(ui.exportedFile(filename))
       setHasUnsavedChanges(false)
+      setLastDirtyAt(null)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -3087,6 +3119,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         ['Alt+L', 'Clear activity log'],
         ['Esc', 'Clear selection'],
       ]
+  const shortcutQueryLower = shortcutsQuery.trim().toLowerCase()
+  const filteredShortcutRows = !shortcutQueryLower
+    ? shortcutRows
+    : shortcutRows.filter(([keyLabel, desc]) => keyLabel.toLowerCase().includes(shortcutQueryLower) || desc.toLowerCase().includes(shortcutQueryLower))
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -3253,8 +3289,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   async function copyActivityLog() {
-    const lines = filteredToastLog.map((item) => `[${formatLogTimestamp(item.at)}] ${activityKindLabel(item)}: ${item.text}`)
-    const text = lines.length > 0 ? lines.join('\n') : ui.activityEmpty
+    const text = buildActivityLogText()
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -3276,9 +3311,42 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
+  function buildActivityLogText() {
+    const lines = filteredToastLog.map((item) => `[${formatLogTimestamp(item.at)}] ${activityKindLabel(item)}: ${item.text}`)
+    return lines.length > 0 ? lines.join('\n') : ui.activityEmpty
+  }
+
+  function downloadActivityLog() {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const now = new Date()
+    const filename = `lamivi_activity_log_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`
+    const blob = new Blob([buildActivityLogText()], { type: 'text/plain;charset=utf-8' })
+    downloadBlob(blob, filename)
+    setStatus(ui.activityDownloaded(filename))
+  }
+
   function clearActivityLog() {
     setToastLog([])
     setStatus(ui.activityCleared)
+  }
+
+  function resetSettingsToDefaults() {
+    setBrushSize(DEFAULT_BRUSH_SIZE)
+    setAutoSaveSeconds(DEFAULT_AUTOSAVE_SECONDS)
+    setShowGuide(true)
+    setShowShortcutTips(true)
+    setTooltipDensity('detailed')
+    setAnimationStrength('high')
+    setUiDensity('default')
+    setActivityLogLimit(DEFAULT_ACTIVITY_LOG_LIMIT)
+    setActivityFilter('all')
+    setShowActivityLog(false)
+    setPreferredDevice('cpu')
+    setPendingExportFormat('png')
+    setPendingExportRatio(2)
+    setPendingExportScope('current')
+    setPendingExportQuality(DEFAULT_EXPORT_QUALITY)
+    setStatus(ui.settingsResetDone)
   }
 
   async function setDeviceMode(next: 'cpu' | 'cuda') {
@@ -3346,6 +3414,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button
               className="unsavedBadge"
               type="button"
+              title={lastDirtyAt ? ui.unsavedUpdatedAt(formatTimestamp(lastDirtyAt)) : ui.unsavedBadge}
               onClick={() => {
                 if (!hasSelectedAssets && pendingExportScope === 'selected') {
                   setPendingExportScope('current')
@@ -3479,6 +3548,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="10">10</option>
                 <option value="20">20</option>
               </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' ? (
+            <div className="settingsRow settingsActionRow">
+              <button className="btn ghost" onClick={resetSettingsToDefaults}>{ui.settingsResetDefaults}</button>
             </div>
             ) : null}
 
@@ -4467,6 +4542,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className="activityPanelTitle">{ui.activityLog}</div>
             <div className="activityPanelActions">
               <button className="btn" onClick={() => void copyActivityLog()} disabled={filteredToastLog.length === 0}>{ui.activityCopy}</button>
+              <button className="btn" onClick={downloadActivityLog} disabled={filteredToastLog.length === 0}>{ui.activityDownload}</button>
               <button className="btn" onClick={clearActivityLog} disabled={toastLog.length === 0}>{ui.activityClear}</button>
             </div>
           </div>
@@ -4507,13 +4583,21 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           <div className="dialog shortcutsDialog" onClick={(e) => e.stopPropagation()}>
             <div className="dialogTitle">{ui.shortcutsHelp}</div>
             <div className="dialogHint">{ui.shortcutsToggleHint}</div>
+            <input
+              className="input shortcutsSearchInput"
+              value={shortcutsQuery}
+              onChange={(e) => setShortcutsQuery(e.target.value)}
+              placeholder={ui.shortcutsSearchPlaceholder}
+              aria-label={ui.shortcutsSearchPlaceholder}
+            />
             <div className="shortcutsTable" role="table" aria-label={ui.shortcutsHelp}>
-              {shortcutRows.map(([keyLabel, desc]) => (
+              {filteredShortcutRows.map(([keyLabel, desc]) => (
                 <div className="shortcutsRow" role="row" key={keyLabel}>
                   <div className="shortcutsKey" role="cell">{keyLabel}</div>
                   <div className="shortcutsDesc" role="cell">{desc}</div>
                 </div>
               ))}
+              {filteredShortcutRows.length === 0 ? <div className="hint">{ui.shortcutsNoMatch}</div> : null}
             </div>
             <div className="dialogActions">
               <button className="btn" onClick={() => setShowShortcutsHelp(false)}>{ui.shortcutsClose}</button>
