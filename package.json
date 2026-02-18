@@ -1,0 +1,11 @@
+{
+  "name": "lamivi-root",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "build": "npm --prefix server run build && npm --prefix web run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
