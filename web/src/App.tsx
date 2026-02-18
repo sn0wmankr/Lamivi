@@ -651,6 +651,7 @@ const UI = {
     settingsAiRestoreDefault: 'AI 복원 엔진 기본값',
     settingsBrushDefault: '기본 브러시 크기',
     settingsAutoSave: '자동 저장 주기(초)',
+    settingsActivityLogLimit: '작업 로그 표시 개수',
     settingsShortcutTips: '단축키 툴팁 표시',
     settingsTooltipDensity: '툴팁 밀도',
     settingsTooltipSimple: '간단',
@@ -712,7 +713,7 @@ const UI = {
     shortcutsHelp: '단축키 도움말',
     shortcutsToggleHint: '? 키로 열기/닫기',
     shortcutsClose: '닫기',
-    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · Esc 선택해제',
+    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Esc 선택해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `전체 파일 ${count}개에 적용할까요?`,
     macroConfirmSelected: (count: number) => `선택 파일 ${count}개에 적용할까요?`,
@@ -913,6 +914,7 @@ const UI = {
     settingsAiRestoreDefault: 'Default AI Restore engine',
     settingsBrushDefault: 'Default brush size',
     settingsAutoSave: 'Autosave interval (sec)',
+    settingsActivityLogLimit: 'Activity log item count',
     settingsShortcutTips: 'Show shortcut tooltips',
     settingsTooltipDensity: 'Tooltip density',
     settingsTooltipSimple: 'Simple',
@@ -974,7 +976,7 @@ const UI = {
     shortcutsHelp: 'Shortcuts',
     shortcutsToggleHint: 'Toggle with ? key',
     shortcutsClose: 'Close',
-    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · Esc Clear selection',
+    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Esc Clear selection',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `Apply to all ${count} files?`,
     macroConfirmSelected: (count: number) => `Apply to ${count} selected files?`,
@@ -1116,6 +1118,15 @@ function App() {
       // ignore
     }
     return 'all'
+  })
+  const [activityLogLimit, setActivityLogLimit] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem('lamivi-activity-limit'))
+      if (saved === 5 || saved === 10 || saved === 20) return saved
+    } catch {
+      // ignore
+    }
+    return 10
   })
   const [activityNow, setActivityNow] = useState<number>(() => Date.now())
   const [preferredDevice, setPreferredDevice] = useState<'cpu' | 'cuda'>(() => {
@@ -1594,6 +1605,14 @@ function App() {
   }, [activityFilter])
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-activity-limit', String(activityLogLimit))
+    } catch {
+      // ignore
+    }
+  }, [activityLogLimit])
+
+  useEffect(() => {
     const saved = selectedTextId ? quickBarOffsetsRef.current[selectedTextId] : null
     setQuickBarOffset(saved ?? { x: 0, y: 0 })
     setDraggingQuickBar(false)
@@ -1654,9 +1673,9 @@ function App() {
         assetId: activeRef.current?.id ?? null,
         snapshot: activeRef.current ? serializeSnapshot(snapshotFrom(activeRef.current)) : null,
       }
-      return [next, ...prev].slice(0, 5)
+      return [next, ...prev].slice(0, activityLogLimit)
     })
-  }, [toast])
+  }, [toast, activityLogLimit])
 
   useEffect(() => {
     let cancelled = false
@@ -1754,6 +1773,18 @@ function App() {
       if (key === '?' || key === 'f1') {
         e.preventDefault()
         setShowShortcutsHelp((prev) => !prev)
+        return
+      }
+
+      if (key === 'i') {
+        e.preventDefault()
+        invertAssetSelection()
+        return
+      }
+
+      if (e.altKey && key === 'l') {
+        e.preventDefault()
+        clearActivityLog()
         return
       }
 
@@ -3038,6 +3069,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         ['Ctrl/Cmd+Z', '실행취소'],
         ['Shift+Ctrl/Cmd+Z', '다시실행'],
         ['Shift+클릭', '범위 다중선택'],
+        ['I', '파일 선택 반전'],
+        ['Alt+L', '작업 로그 비우기'],
         ['Esc', '선택 해제'],
       ]
     : [
@@ -3050,6 +3083,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         ['Ctrl/Cmd+Z', 'Undo'],
         ['Shift+Ctrl/Cmd+Z', 'Redo'],
         ['Shift+click', 'Range multi-select'],
+        ['I', 'Invert file selection'],
+        ['Alt+L', 'Clear activity log'],
         ['Esc', 'Clear selection'],
       ]
 
@@ -3307,7 +3342,20 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </span>
             <span className="deviceDetailText">{ui.aiRuntimeDetail(restoreDeviceLabel, requestedDeviceLabel, selectedAssetIds.length)}</span>
           </div>
-          {hasUnsavedChanges ? <span className="unsavedBadge">{ui.unsavedBadge}</span> : null}
+          {hasUnsavedChanges ? (
+            <button
+              className="unsavedBadge"
+              type="button"
+              onClick={() => {
+                if (!hasSelectedAssets && pendingExportScope === 'selected') {
+                  setPendingExportScope('current')
+                }
+                setExportDialogOpen(true)
+              }}
+            >
+              {ui.unsavedBadge}
+            </button>
+          ) : null}
 
           <button className="activityBtn" onClick={() => setShowActivityLog((prev) => !prev)}>
             {showActivityLog ? ui.activityHide : ui.activityShow}
@@ -3420,6 +3468,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="120">120s</option>
               </select>
               <div className="hint">{ui.settingsLastAutoSave}: {formatTimestamp(lastAutoSaveAt)}</div>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' ? (
+            <div className="settingsRow">
+              <div className="settingsLabel">{ui.settingsActivityLogLimit}</div>
+              <select className="langSelect settingsLangSelect" value={String(activityLogLimit)} onChange={(e) => setActivityLogLimit(clamp(Number(e.target.value), 5, 20))}>
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+              </select>
             </div>
             ) : null}
 

@@ -1411,6 +1411,7 @@
 }
 
 .unsavedBadge {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1423,6 +1424,16 @@
   font-weight: 700;
   letter-spacing: 0.2px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.unsavedBadge:hover {
+  background: rgba(255, 174, 66, 0.22);
+}
+
+.unsavedBadge:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 174, 66, 0.22);
 }
 
 .activityFilterRow .tabBtn {
