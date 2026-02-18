@@ -56,6 +56,7 @@ type UiDensity = 'default' | 'compact'
 type SettingsTab = 'general' | 'editing' | 'info'
 type TooltipDensity = 'simple' | 'detailed'
 type AnimationStrength = 'low' | 'default' | 'high'
+type ShortcutCategory = 'tools' | 'selection' | 'history'
 
 type ToastLogItem = {
   id: string
@@ -657,6 +658,7 @@ const UI = {
     settingsAutoSave: '자동 저장 주기(초)',
     settingsActivityLogLimit: '작업 로그 표시 개수',
     settingsResetDefaults: '기본값으로 초기화',
+    settingsResetConfirm: '설정을 기본값으로 초기화할까요?',
     settingsResetDone: '설정을 기본값으로 초기화했습니다',
     settingsShortcutTips: '단축키 툴팁 표시',
     settingsTooltipDensity: '툴팁 밀도',
@@ -680,6 +682,8 @@ const UI = {
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
     activityDownload: '로그 저장',
+    activityDownloadFiltered: '필터만 저장',
+    activityDownloadAll: '전체 저장',
     activityClear: '로그 비우기',
     activityCopied: '작업 로그를 복사했습니다',
     activityDownloaded: (name: string) => `로그 저장 완료: ${name}`,
@@ -706,6 +710,7 @@ const UI = {
     settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
     unsavedWarn: '저장되지 않은 변경사항이 있습니다.',
     unsavedBadge: '미저장 변경',
+    unsavedBadgeCount: (count: number) => `미저장 변경 (${count})`,
     unsavedUpdatedAt: (time: string) => `마지막 변경: ${time}`,
     errCanvasUnavailable: '캔버스를 사용할 수 없습니다.',
     errPngConvertFailed: 'PNG로 변환하지 못했습니다.',
@@ -721,6 +726,10 @@ const UI = {
     aiRuntimeDetail: (runtime: string, requested: string, selectedCount: number) => `실행: ${runtime} · 요청: ${requested} · 선택: ${selectedCount}개`,
     shortcutsHelp: '단축키 도움말',
     shortcutsToggleHint: '? 키로 열기/닫기',
+    shortcutsCategoryAll: '전체',
+    shortcutsCategoryTools: '도구',
+    shortcutsCategorySelection: '선택',
+    shortcutsCategoryHistory: '히스토리',
     shortcutsSearchPlaceholder: '단축키 검색',
     shortcutsNoMatch: '검색 결과가 없습니다.',
     shortcutsClose: '닫기',
@@ -927,6 +936,7 @@ const UI = {
     settingsAutoSave: 'Autosave interval (sec)',
     settingsActivityLogLimit: 'Activity log item count',
     settingsResetDefaults: 'Reset to defaults',
+    settingsResetConfirm: 'Reset settings to defaults?',
     settingsResetDone: 'Settings reset to defaults',
     settingsShortcutTips: 'Show shortcut tooltips',
     settingsTooltipDensity: 'Tooltip density',
@@ -950,6 +960,8 @@ const UI = {
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
     activityDownload: 'Save log',
+    activityDownloadFiltered: 'Save filtered',
+    activityDownloadAll: 'Save all',
     activityClear: 'Clear log',
     activityCopied: 'Activity log copied',
     activityDownloaded: (name: string) => `Log saved: ${name}`,
@@ -976,6 +988,7 @@ const UI = {
     settingsCopiedDiagnostics: 'Diagnostics copied',
     unsavedWarn: 'You have unsaved changes.',
     unsavedBadge: 'Unsaved changes',
+    unsavedBadgeCount: (count: number) => `Unsaved changes (${count})`,
     unsavedUpdatedAt: (time: string) => `Last updated: ${time}`,
     errCanvasUnavailable: 'Canvas is unavailable.',
     errPngConvertFailed: 'Failed to convert to PNG.',
@@ -991,6 +1004,10 @@ const UI = {
     aiRuntimeDetail: (runtime: string, requested: string, selectedCount: number) => `Runtime: ${runtime} · Requested: ${requested} · Selected: ${selectedCount}`,
     shortcutsHelp: 'Shortcuts',
     shortcutsToggleHint: 'Toggle with ? key',
+    shortcutsCategoryAll: 'All',
+    shortcutsCategoryTools: 'Tools',
+    shortcutsCategorySelection: 'Selection',
+    shortcutsCategoryHistory: 'History',
     shortcutsSearchPlaceholder: 'Search shortcuts',
     shortcutsNoMatch: 'No matching shortcuts.',
     shortcutsClose: 'Close',
@@ -1111,6 +1128,7 @@ function App() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
   const [flashAssetId, setFlashAssetId] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [dirtyChangeCount, setDirtyChangeCount] = useState(0)
   const [lastDirtyAt, setLastDirtyAt] = useState<number | null>(null)
   const [showGuide, setShowGuide] = useState<boolean>(() => {
     try {
@@ -1137,6 +1155,13 @@ function App() {
       // ignore
     }
     return 'all'
+  })
+  const [activityDownloadMode, setActivityDownloadMode] = useState<'filtered' | 'all'>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-activity-download-mode') === 'all' ? 'all' : 'filtered'
+    } catch {
+      return 'filtered'
+    }
   })
   const [activityLogLimit, setActivityLogLimit] = useState<number>(() => {
     try {
@@ -1177,6 +1202,7 @@ function App() {
   const [tooltipsMuted, setTooltipsMuted] = useState(false)
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
   const [shortcutsQuery, setShortcutsQuery] = useState('')
+  const [shortcutsCategory, setShortcutsCategory] = useState<'all' | ShortcutCategory>('all')
   const [macroRunningMode, setMacroRunningMode] = useState<'all' | 'selected' | null>(null)
   const [macroRunningTool, setMacroRunningTool] = useState<'restore' | 'eraser' | null>(null)
   const [tooltipDensity, setTooltipDensity] = useState<TooltipDensity>(() => {
@@ -1370,8 +1396,9 @@ function App() {
       return
     }
     setHasUnsavedChanges(true)
+    setDirtyChangeCount((prev) => prev + 1)
     setLastDirtyAt(Date.now())
-  }, [assets, activeId])
+  }, [assets])
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -1612,6 +1639,7 @@ function App() {
   useEffect(() => {
     if (!showShortcutsHelp) {
       setShortcutsQuery('')
+      setShortcutsCategory('all')
     }
   }, [showShortcutsHelp])
 
@@ -1630,6 +1658,14 @@ function App() {
       // ignore
     }
   }, [activityFilter])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-activity-download-mode', activityDownloadMode)
+    } catch {
+      // ignore
+    }
+  }, [activityDownloadMode])
 
   useEffect(() => {
     try {
@@ -2768,6 +2804,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
       setHasUnsavedChanges(false)
+      setDirtyChangeCount(0)
       setLastDirtyAt(null)
     } finally {
       setBusy(null)
@@ -2794,6 +2831,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
       setHasUnsavedChanges(false)
+      setDirtyChangeCount(0)
       setLastDirtyAt(null)
     } finally {
       setBusy(null)
@@ -2820,6 +2858,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
       setHasUnsavedChanges(false)
+      setDirtyChangeCount(0)
       setLastDirtyAt(null)
     } finally {
       setBusy(null)
@@ -2869,6 +2908,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       downloadBlob(blob, filename)
       setStatus(ui.exportedFile(filename))
       setHasUnsavedChanges(false)
+      setDirtyChangeCount(0)
       setLastDirtyAt(null)
     } finally {
       setBusy(null)
@@ -2935,6 +2975,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       downloadBlob(out, filename)
       setStatus(ui.exportedFile(filename))
       setHasUnsavedChanges(false)
+      setDirtyChangeCount(0)
       setLastDirtyAt(null)
     } finally {
       setBusy(null)
@@ -3090,39 +3131,42 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }, [selectedText, tool, editingTextId, fit, wrapSize, quickBarOffset])
   const tinyViewport = wrapSize.w <= 360
-  const shortcutRows = locale === 'ko'
+  const shortcutRows: Array<{ keyLabel: string; desc: string; category: ShortcutCategory }> = locale === 'ko'
     ? [
-        ['B', '복원 모드'],
-        ['E', '지우개 모드'],
-        ['T', '텍스트 모드'],
-        ['C', '자르기 모드'],
-        ['M', '이동 모드'],
-        ['Ctrl+휠', '확대/축소'],
-        ['Ctrl/Cmd+Z', '실행취소'],
-        ['Shift+Ctrl/Cmd+Z', '다시실행'],
-        ['Shift+클릭', '범위 다중선택'],
-        ['I', '파일 선택 반전'],
-        ['Alt+L', '작업 로그 비우기'],
-        ['Esc', '선택 해제'],
+        { keyLabel: 'B', desc: '복원 모드', category: 'tools' },
+        { keyLabel: 'E', desc: '지우개 모드', category: 'tools' },
+        { keyLabel: 'T', desc: '텍스트 모드', category: 'tools' },
+        { keyLabel: 'C', desc: '자르기 모드', category: 'tools' },
+        { keyLabel: 'M', desc: '이동 모드', category: 'tools' },
+        { keyLabel: 'Ctrl+휠', desc: '확대/축소', category: 'tools' },
+        { keyLabel: 'Shift+클릭', desc: '범위 다중선택', category: 'selection' },
+        { keyLabel: 'I', desc: '파일 선택 반전', category: 'selection' },
+        { keyLabel: 'Esc', desc: '선택 해제', category: 'selection' },
+        { keyLabel: 'Ctrl/Cmd+Z', desc: '실행취소', category: 'history' },
+        { keyLabel: 'Shift+Ctrl/Cmd+Z', desc: '다시실행', category: 'history' },
+        { keyLabel: 'Alt+L', desc: '작업 로그 비우기', category: 'history' },
       ]
     : [
-        ['B', 'Restore mode'],
-        ['E', 'Eraser mode'],
-        ['T', 'Text mode'],
-        ['C', 'Crop mode'],
-        ['M', 'Move mode'],
-        ['Ctrl+wheel', 'Zoom in/out'],
-        ['Ctrl/Cmd+Z', 'Undo'],
-        ['Shift+Ctrl/Cmd+Z', 'Redo'],
-        ['Shift+click', 'Range multi-select'],
-        ['I', 'Invert file selection'],
-        ['Alt+L', 'Clear activity log'],
-        ['Esc', 'Clear selection'],
+        { keyLabel: 'B', desc: 'Restore mode', category: 'tools' },
+        { keyLabel: 'E', desc: 'Eraser mode', category: 'tools' },
+        { keyLabel: 'T', desc: 'Text mode', category: 'tools' },
+        { keyLabel: 'C', desc: 'Crop mode', category: 'tools' },
+        { keyLabel: 'M', desc: 'Move mode', category: 'tools' },
+        { keyLabel: 'Ctrl+wheel', desc: 'Zoom in/out', category: 'tools' },
+        { keyLabel: 'Shift+click', desc: 'Range multi-select', category: 'selection' },
+        { keyLabel: 'I', desc: 'Invert file selection', category: 'selection' },
+        { keyLabel: 'Esc', desc: 'Clear selection', category: 'selection' },
+        { keyLabel: 'Ctrl/Cmd+Z', desc: 'Undo', category: 'history' },
+        { keyLabel: 'Shift+Ctrl/Cmd+Z', desc: 'Redo', category: 'history' },
+        { keyLabel: 'Alt+L', desc: 'Clear activity log', category: 'history' },
       ]
+  const categorizedShortcutRows = shortcutsCategory === 'all'
+    ? shortcutRows
+    : shortcutRows.filter((row) => row.category === shortcutsCategory)
   const shortcutQueryLower = shortcutsQuery.trim().toLowerCase()
   const filteredShortcutRows = !shortcutQueryLower
-    ? shortcutRows
-    : shortcutRows.filter(([keyLabel, desc]) => keyLabel.toLowerCase().includes(shortcutQueryLower) || desc.toLowerCase().includes(shortcutQueryLower))
+    ? categorizedShortcutRows
+    : categorizedShortcutRows.filter((row) => row.keyLabel.toLowerCase().includes(shortcutQueryLower) || row.desc.toLowerCase().includes(shortcutQueryLower))
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -3289,7 +3333,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   async function copyActivityLog() {
-    const text = buildActivityLogText()
+    const text = buildActivityLogText('filtered')
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -3311,8 +3355,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  function buildActivityLogText() {
-    const lines = filteredToastLog.map((item) => `[${formatLogTimestamp(item.at)}] ${activityKindLabel(item)}: ${item.text}`)
+  function buildActivityLogText(mode: 'filtered' | 'all') {
+    const source = mode === 'all' ? toastLog : filteredToastLog
+    const lines = source.map((item) => `[${formatLogTimestamp(item.at)}] ${activityKindLabel(item)}: ${item.text}`)
     return lines.length > 0 ? lines.join('\n') : ui.activityEmpty
   }
 
@@ -3320,7 +3365,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     const pad = (n: number) => String(n).padStart(2, '0')
     const now = new Date()
     const filename = `lamivi_activity_log_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`
-    const blob = new Blob([buildActivityLogText()], { type: 'text/plain;charset=utf-8' })
+    const blob = new Blob([buildActivityLogText(activityDownloadMode)], { type: 'text/plain;charset=utf-8' })
     downloadBlob(blob, filename)
     setStatus(ui.activityDownloaded(filename))
   }
@@ -3331,6 +3376,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   function resetSettingsToDefaults() {
+    if (!window.confirm(ui.settingsResetConfirm)) return
     setBrushSize(DEFAULT_BRUSH_SIZE)
     setAutoSaveSeconds(DEFAULT_AUTOSAVE_SECONDS)
     setShowGuide(true)
@@ -3422,7 +3468,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 setExportDialogOpen(true)
               }}
             >
-              {ui.unsavedBadge}
+              {dirtyChangeCount > 0 ? ui.unsavedBadgeCount(dirtyChangeCount) : ui.unsavedBadge}
             </button>
           ) : null}
 
@@ -4541,8 +4587,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           <div className="activityPanelTitleRow">
             <div className="activityPanelTitle">{ui.activityLog}</div>
             <div className="activityPanelActions">
+              <select className="select activitySaveScope" value={activityDownloadMode} onChange={(e) => setActivityDownloadMode(e.target.value as 'filtered' | 'all')}>
+                <option value="filtered">{ui.activityDownloadFiltered}</option>
+                <option value="all">{ui.activityDownloadAll}</option>
+              </select>
               <button className="btn" onClick={() => void copyActivityLog()} disabled={filteredToastLog.length === 0}>{ui.activityCopy}</button>
-              <button className="btn" onClick={downloadActivityLog} disabled={filteredToastLog.length === 0}>{ui.activityDownload}</button>
+              <button className="btn" onClick={downloadActivityLog} disabled={activityDownloadMode === 'all' ? toastLog.length === 0 : filteredToastLog.length === 0}>{ui.activityDownload}</button>
               <button className="btn" onClick={clearActivityLog} disabled={toastLog.length === 0}>{ui.activityClear}</button>
             </div>
           </div>
@@ -4590,11 +4640,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               placeholder={ui.shortcutsSearchPlaceholder}
               aria-label={ui.shortcutsSearchPlaceholder}
             />
+            <div className="shortcutsCategoryRow">
+              <button className={`tabBtn ${shortcutsCategory === 'all' ? 'active' : ''}`} onClick={() => setShortcutsCategory('all')}>{ui.shortcutsCategoryAll}</button>
+              <button className={`tabBtn ${shortcutsCategory === 'tools' ? 'active' : ''}`} onClick={() => setShortcutsCategory('tools')}>{ui.shortcutsCategoryTools}</button>
+              <button className={`tabBtn ${shortcutsCategory === 'selection' ? 'active' : ''}`} onClick={() => setShortcutsCategory('selection')}>{ui.shortcutsCategorySelection}</button>
+              <button className={`tabBtn ${shortcutsCategory === 'history' ? 'active' : ''}`} onClick={() => setShortcutsCategory('history')}>{ui.shortcutsCategoryHistory}</button>
+            </div>
             <div className="shortcutsTable" role="table" aria-label={ui.shortcutsHelp}>
-              {filteredShortcutRows.map(([keyLabel, desc]) => (
-                <div className="shortcutsRow" role="row" key={keyLabel}>
-                  <div className="shortcutsKey" role="cell">{keyLabel}</div>
-                  <div className="shortcutsDesc" role="cell">{desc}</div>
+              {filteredShortcutRows.map((row) => (
+                <div className="shortcutsRow" role="row" key={`${row.category}-${row.keyLabel}`}>
+                  <div className="shortcutsKey" role="cell">{row.keyLabel}</div>
+                  <div className="shortcutsDesc" role="cell">{row.desc}</div>
                 </div>
               ))}
               {filteredShortcutRows.length === 0 ? <div className="hint">{ui.shortcutsNoMatch}</div> : null}

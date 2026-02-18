@@ -1399,6 +1399,14 @@
   justify-content: flex-end;
 }
 
+.activitySaveScope {
+  min-width: 118px;
+  height: 30px;
+  font-size: 11px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 .activityPanelTitleRow .activityPanelTitle {
   padding: 0;
   border: 0;
@@ -1445,6 +1453,16 @@
 
 .shortcutsSearchInput {
   width: 100%;
+}
+
+.shortcutsCategoryRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.shortcutsCategoryRow .tabBtn {
+  height: 30px;
 }
 
 .activityFilterRow .tabBtn {
@@ -2623,6 +2641,9 @@
     grid-column: 1 / -1;
   }
   .activityFilterRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .shortcutsCategoryRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .rotationControlRow {
