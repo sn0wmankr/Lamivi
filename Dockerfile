@@ -12,7 +12,7 @@ RUN npm ci
 COPY server/ ./
 RUN npm run build
 
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS runtime
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
