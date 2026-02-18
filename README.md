@@ -33,6 +33,7 @@ Recommended when:
 Host requirements:
 - NVIDIA driver installed on host
 - NVIDIA Container Toolkit installed
+- For RTX 50-series (sm_120), use an image built with CUDA 12.8 PyTorch wheels (`cu128`)
 
 ## 3) Run with CPU (fallback)
 
@@ -89,6 +90,8 @@ Check fields like device/cuda availability in response.
 - Confirm host driver and NVIDIA Container Toolkit
 - Try `LAMIVI_DEVICE=auto`
 - Check `/api/health` response
+- On very new GPUs with unsupported PyTorch CUDA kernels, Lamivi falls back to CPU automatically; you can also force CPU with `LAMIVI_DEVICE=cpu`
+- If using RTX 5090/50-series, make sure the running image was built with `cu128` wheels and a host driver new enough for CUDA 12.8+
 
 ## Project notes
 
