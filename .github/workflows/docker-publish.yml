@@ -4,6 +4,13 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_latest:
+        description: "Also publish latest tag"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,8 +49,8 @@ jobs:
           images: |
             name=docker.io/${{ env.DOCKERHUB_USERNAME }}/lamivi
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable={{is_default_branch}}
+            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_latest == 'true' }}
             type=sha
             type=ref,event=tag
 

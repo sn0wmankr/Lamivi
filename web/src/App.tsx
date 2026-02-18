@@ -3,6 +3,7 @@ import Konva from 'konva'
 import { Circle, Image as KonvaImage, Layer, Line, Stage, Text, Group, Rect, Transformer } from 'react-konva'
 import { jsPDF } from 'jspdf'
 import PptxGenJS from 'pptxgenjs'
+import JSZip from 'jszip'
 
 import './App.css'
 import type { LayerGroup, MaskStroke, PageAsset, TextItem, Tool } from './lib/types'
@@ -2353,6 +2354,22 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
+      if (targets.length > 1) {
+        const zip = new JSZip()
+        for (let idx = 0; idx < targets.length; idx += 1) {
+          const target = targets[idx]!
+          const dataUrl = await renderAssetToDataUrl(target, pixelRatio)
+          const blob = await dataUrlToBlob(dataUrl)
+          zip.file(buildLamiviFilename(target.name, 'png'), await blob.arrayBuffer())
+          setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
+        }
+        const first = targets[0]!
+        const zipBlob = await zip.generateAsync({ type: 'blob' })
+        downloadBlob(zipBlob, buildLamiviBundleFilename(first.name, '_images_png', 'zip'))
+        setStatus(ui.exportedPng)
+        return
+      }
+
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio)
@@ -2372,6 +2389,22 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
+      if (targets.length > 1) {
+        const zip = new JSZip()
+        for (let idx = 0; idx < targets.length; idx += 1) {
+          const target = targets[idx]!
+          const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', 0.92)
+          const blob = await dataUrlToBlob(dataUrl)
+          zip.file(buildLamiviFilename(target.name, 'jpg'), await blob.arrayBuffer())
+          setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
+        }
+        const first = targets[0]!
+        const zipBlob = await zip.generateAsync({ type: 'blob' })
+        downloadBlob(zipBlob, buildLamiviBundleFilename(first.name, '_images_jpg', 'zip'))
+        setStatus(ui.done)
+        return
+      }
+
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', 0.92)
@@ -2391,6 +2424,22 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
+      if (targets.length > 1) {
+        const zip = new JSZip()
+        for (let idx = 0; idx < targets.length; idx += 1) {
+          const target = targets[idx]!
+          const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', 0.92)
+          const blob = await dataUrlToBlob(dataUrl)
+          zip.file(buildLamiviFilename(target.name, 'webp'), await blob.arrayBuffer())
+          setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
+        }
+        const first = targets[0]!
+        const zipBlob = await zip.generateAsync({ type: 'blob' })
+        downloadBlob(zipBlob, buildLamiviBundleFilename(first.name, '_images_webp', 'zip'))
+        setStatus(ui.done)
+        return
+      }
+
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', 0.92)
