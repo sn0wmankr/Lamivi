@@ -1,5 +1,5 @@
 # Lamivi
-![Screenshot](lamivi.png)
+<img width="1920" height="911" alt="lamivi" src="https://github.com/user-attachments/assets/c9bca73e-2199-486c-9d04-71f4d6b044b0" />
 Lamivi is a browser-based AI image editor inspired by IOPaint workflows and powered by a LaMa inpainting engine.
 
 This README is focused on running Lamivi from Docker Hub using the `latest` image.
