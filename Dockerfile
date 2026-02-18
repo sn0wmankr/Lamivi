@@ -47,9 +47,9 @@ RUN python3 -m venv /opt/venv-lama \
     --index-url https://download.pytorch.org/whl/cu128 \
     torch==2.9.1 torchvision==0.24.1 \
   && /opt/venv-lama/bin/python -m pip install --no-cache-dir \
-    --no-deps simple-lama-inpainting==0.1.2 \
+    fire==0.5.0 pillow==10.4.0 numpy==1.26.4 opencv-python==4.10.0.84 \
   && /opt/venv-lama/bin/python -m pip install --no-cache-dir \
-    fire==0.5.0 pillow==10.4.0 numpy==1.26.4 opencv-python==4.10.0.84
+    --no-deps simple-lama-inpainting==0.1.2
 
 COPY --from=server-build /src/server/package.json /app/server/package.json
 COPY --from=server-build /src/server/node_modules /app/server/node_modules
