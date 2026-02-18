@@ -1,6 +1,7 @@
 services:
   lamivi:
-    build: .
+    image: lamivi:local
+    gpus: all
     ports:
       - "18743:18743"
     environment:
@@ -8,3 +9,10 @@ services:
       - LAMIVI_PYTHON=/opt/venv-lama/bin/python
       - LAMIVI_WORKER_TIMEOUT_MS=600000
       - LAMIVI_BOOT_TIMEOUT_MS=120000
+    volumes:
+      - lamivi_torch_cache:/root/.cache/torch
+      - lamivi_lama_cache:/root/.cache/lama
+
+volumes:
+  lamivi_torch_cache:
+  lamivi_lama_cache:
