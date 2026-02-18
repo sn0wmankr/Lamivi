@@ -10,7 +10,7 @@ export type ImportedBitmap = {
 async function readFileAsDataUrl(file: File): Promise<string> {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.onerror = () => reject(new Error('ERR_IMPORT_READ_FILE'))
     reader.onload = () => resolve(String(reader.result ?? ''))
     reader.readAsDataURL(file)
   })
@@ -20,7 +20,7 @@ async function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> 
   return await new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('Failed to load image'))
+    img.onerror = () => reject(new Error('ERR_IMPORT_IMAGE_LOAD'))
     img.src = dataUrl
   })
 }
@@ -50,7 +50,7 @@ export async function importPdfFile(file: File): Promise<ImportedBitmap[]> {
     canvas.height = Math.max(1, Math.floor(viewport.height))
 
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('Canvas 2D context not available')
+    if (!ctx) throw new Error('ERR_CANVAS_INIT_FAILED')
 
     await page.render({ canvasContext: ctx, viewport, canvas }).promise
     const dataUrl = canvas.toDataURL('image/png')

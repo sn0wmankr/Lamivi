@@ -13,14 +13,14 @@ export async function inpaintViaApi(opts: {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`AI 지우기에 실패했습니다 (${res.status}). ${text}`)
+    throw new Error(`ERR_INPAINT_HTTP:${res.status}:${text}`)
   }
 
   const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
   if (!contentType.startsWith('image/')) {
     const text = await res.text().catch(() => '')
     const snippet = text.slice(0, 140).replace(/\s+/g, ' ').trim()
-    throw new Error(`AI 복원 API 응답이 이미지가 아닙니다. (/api 경로/프록시 확인) ${snippet}`)
+    throw new Error(`ERR_INPAINT_NON_IMAGE:${snippet}`)
   }
 
   return await res.blob()

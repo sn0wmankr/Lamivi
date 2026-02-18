@@ -83,6 +83,10 @@ const ERASER_COLOR_BUCKET_STEP = 8
 const ZOOM_MIN = 0.3
 const ZOOM_MAX = 5
 const UPSCALE_OPTIONS = [1, 2, 4, 8] as const
+const ERR_CANVAS_UNAVAILABLE = 'ERR_CANVAS_UNAVAILABLE'
+const ERR_PNG_CONVERT_FAILED = 'ERR_PNG_CONVERT_FAILED'
+const ERR_IMAGE_LOAD_FAILED = 'ERR_IMAGE_LOAD_FAILED'
+const ERR_DATA_URL_CONVERT_FAILED = 'ERR_DATA_URL_CONVERT_FAILED'
 
 function uid(prefix: string) {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -216,7 +220,7 @@ async function renderMaskToPng(opts: {
   canvas.height = opts.height
 
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+  if (!ctx) throw new Error(ERR_CANVAS_UNAVAILABLE)
 
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = 'black'
@@ -239,7 +243,7 @@ async function renderMaskToPng(opts: {
   }
 
   const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('PNG로 변환하지 못했습니다.')
+  if (!blob) throw new Error(ERR_PNG_CONVERT_FAILED)
   return blob
 }
 
@@ -247,7 +251,7 @@ function loadHtmlImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'))
+    img.onerror = () => reject(new Error(ERR_IMAGE_LOAD_FAILED))
     img.src = dataUrl
   })
 }
@@ -258,12 +262,12 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onload = () => {
       const value = reader.result
       if (typeof value !== 'string') {
-        reject(new Error('데이터 URL로 변환하지 못했습니다.'))
+        reject(new Error(ERR_DATA_URL_CONVERT_FAILED))
         return
       }
       resolve(value)
     }
-    reader.onerror = () => reject(new Error('데이터 URL로 변환하지 못했습니다.'))
+    reader.onerror = () => reject(new Error(ERR_DATA_URL_CONVERT_FAILED))
     reader.readAsDataURL(blob)
   })
 }
@@ -332,10 +336,10 @@ async function renderAssetRegionToBlob(asset: PageAsset, rect: CropRect): Promis
   canvas.width = rect.width
   canvas.height = rect.height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+  if (!ctx) throw new Error(ERR_CANVAS_UNAVAILABLE)
   ctx.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height)
   const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('PNG로 변환하지 못했습니다.')
+  if (!blob) throw new Error(ERR_PNG_CONVERT_FAILED)
   return blob
 }
 
@@ -348,7 +352,7 @@ async function mergeInpaintResult(baseDataUrl: string, rect: CropRect, patchBlob
   canvas.width = baseImage.width
   canvas.height = baseImage.height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+  if (!ctx) throw new Error(ERR_CANVAS_UNAVAILABLE)
   ctx.drawImage(baseImage, 0, 0)
   ctx.drawImage(patchImage, rect.x, rect.y, rect.width, rect.height)
   return canvas.toDataURL('image/png')
@@ -695,6 +699,16 @@ const UI = {
     settingsRepo: '저장소',
     settingsCopyDiagnostics: '환경 진단 복사',
     settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
+    errCanvasUnavailable: '캔버스를 사용할 수 없습니다.',
+    errPngConvertFailed: 'PNG로 변환하지 못했습니다.',
+    errImageLoadFailed: '이미지를 불러오지 못했습니다.',
+    errDataUrlConvertFailed: '데이터 URL로 변환하지 못했습니다.',
+    errImportReadFile: '파일을 읽지 못했습니다.',
+    errCanvasInitFailed: '캔버스를 초기화하지 못했습니다.',
+    errInpaintHttp: (status: string, detail: string) => `AI 지우기에 실패했습니다 (${status}). ${detail}`,
+    errInpaintNonImage: (snippet: string) => `AI 복원 API 응답이 이미지가 아닙니다. (/api 경로/프록시 확인) ${snippet}`,
+    errApiBadJson: 'AI API 응답 형식 오류 (/api 경로/프록시 확인)',
+    errApiBadJsonWithSnippet: (snippet: string) => `AI API 응답 형식이 올바르지 않습니다. (/api 경로/프록시 확인) ${snippet}`,
     restorePromptTitle: '자동 저장된 작업을 찾았습니다',
     restorePromptBody: '이전 편집 상태를 복원할까요?',
     restorePromptRestore: '복원하기',
@@ -917,6 +931,16 @@ const UI = {
     settingsRepo: 'Repository',
     settingsCopyDiagnostics: 'Copy diagnostics',
     settingsCopiedDiagnostics: 'Diagnostics copied',
+    errCanvasUnavailable: 'Canvas is unavailable.',
+    errPngConvertFailed: 'Failed to convert to PNG.',
+    errImageLoadFailed: 'Failed to load image.',
+    errDataUrlConvertFailed: 'Failed to convert to data URL.',
+    errImportReadFile: 'Failed to read file.',
+    errCanvasInitFailed: 'Failed to initialize canvas.',
+    errInpaintHttp: (status: string, detail: string) => `AI erase request failed (${status}). ${detail}`,
+    errInpaintNonImage: (snippet: string) => `AI restore API response is not an image. (check /api path/proxy) ${snippet}`,
+    errApiBadJson: 'AI API response format error (check /api path/proxy)',
+    errApiBadJsonWithSnippet: (snippet: string) => `AI API response format is invalid. (check /api path/proxy) ${snippet}`,
     restorePromptTitle: 'Autosaved work found',
     restorePromptBody: 'Do you want to restore your previous editing state?',
     restorePromptRestore: 'Restore',
@@ -936,6 +960,25 @@ function App() {
     return 'ko'
   })
   const ui = UI[locale]
+
+  function localizeErrorMessage(message: string): string {
+    const [code, ...rest] = message.split(':')
+    const detail = rest.join(':').trim()
+    if (code === ERR_CANVAS_UNAVAILABLE) return ui.errCanvasUnavailable
+    if (code === ERR_PNG_CONVERT_FAILED) return ui.errPngConvertFailed
+    if (code === ERR_IMAGE_LOAD_FAILED) return ui.errImageLoadFailed
+    if (code === ERR_DATA_URL_CONVERT_FAILED) return ui.errDataUrlConvertFailed
+    if (code === 'ERR_IMPORT_READ_FILE') return ui.errImportReadFile
+    if (code === 'ERR_IMPORT_IMAGE_LOAD') return ui.errImageLoadFailed
+    if (code === 'ERR_CANVAS_INIT_FAILED') return ui.errCanvasInitFailed
+    if (code === 'ERR_INPAINT_NON_IMAGE') return ui.errInpaintNonImage(detail)
+    if (code === 'ERR_API_BAD_JSON') return ui.errApiBadJsonWithSnippet(detail)
+    if (code === 'ERR_INPAINT_HTTP') {
+      const [status = '', ...tail] = rest
+      return ui.errInpaintHttp(status, tail.join(':').trim())
+    }
+    return message
+  }
   const [assets, setAssets] = useState<PageAsset[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [assetListHistoryPast, setAssetListHistoryPast] = useState<AssetListHistoryEntry[]>([])
@@ -1412,7 +1455,7 @@ function App() {
         if (!contentType.includes('application/json')) {
           if (!cancelled) {
             setAiReady(false)
-            setAiError('AI API 응답 형식 오류 (/api 경로/프록시 확인)')
+            setAiError(ui.errApiBadJson)
           }
           return
         }
@@ -1581,6 +1624,8 @@ function App() {
       })
       if (!activeId && imported[0]) setActiveId(imported[0].id)
       setStatus(ui.imported(imported.length))
+    } catch (e) {
+      setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
     } finally {
       setBusy(null)
     }
@@ -1697,7 +1742,7 @@ function App() {
       canvas.width = rect.width
       canvas.height = rect.height
       const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+      if (!ctx) throw new Error(ERR_CANVAS_UNAVAILABLE)
       ctx.clearRect(0, 0, rect.width, rect.height)
       ctx.drawImage(
         source,
@@ -1712,7 +1757,7 @@ function App() {
       )
 
       const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-      if (!blob) throw new Error('PNG로 변환하지 못했습니다.')
+      if (!blob) throw new Error(ERR_PNG_CONVERT_FAILED)
       const nextUrl = await blobToDataUrl(blob)
 
       updateActiveWithHistory('Crop asset', (a) => {
@@ -2237,7 +2282,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       const resultUrl = await mergeInpaintResult(target.baseDataUrl, bounds, resultBlob)
       updateAssetByIdWithHistory(target.id, 'AI restore', (a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [] }))
     } catch (e) {
-      setStatus(String(e instanceof Error ? e.message : e))
+      setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
     }
   }
 
@@ -2253,7 +2298,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       canvas.width = target.width
       canvas.height = target.height
       const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('캔버스를 사용할 수 없습니다.')
+    if (!ctx) throw new Error(ERR_CANVAS_UNAVAILABLE)
 
       ctx.drawImage(baseImage, 0, 0)
       const fillColor = dominantNeighborColor(ctx, target.width, target.height, bounds)
@@ -2276,7 +2321,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       const resultUrl = canvas.toDataURL('image/png')
       updateAssetByIdWithHistory(target.id, 'AI eraser', (a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [] }))
     } catch (e) {
-      setStatus(String(e instanceof Error ? e.message : e))
+      setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
     }
   }
 
@@ -2871,7 +2916,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       if (!contentType.includes('application/json')) {
         const text = await res.text().catch(() => '')
         const snippet = text.slice(0, 140).replace(/\s+/g, ' ').trim()
-        throw new Error(`AI API 응답 형식이 올바르지 않습니다. (/api 경로/프록시 확인) ${snippet}`)
+        throw new Error(`ERR_API_BAD_JSON:${snippet}`)
       }
 
       const payload = (await res.json()) as {
@@ -2894,7 +2939,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       }
       setPreferredDevice(next)
     } catch (e) {
-      setStatus(String(e instanceof Error ? e.message : e))
+      setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
     } finally {
       setSwitchingDevice(false)
     }
