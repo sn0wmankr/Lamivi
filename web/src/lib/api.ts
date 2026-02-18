@@ -1,14 +1,10 @@
-import type { Engine } from './types'
-
 export async function inpaintViaApi(opts: {
   image: Blob
   mask: Blob
-  engine: Engine
 }): Promise<Blob> {
   const body = new FormData()
   body.append('image', opts.image, 'image.png')
   body.append('mask', opts.mask, 'mask.png')
-  body.append('engine', opts.engine)
 
   const res = await fetch('/api/inpaint', {
     method: 'POST',
@@ -17,7 +13,7 @@ export async function inpaintViaApi(opts: {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Inpaint failed: ${res.status} ${text}`)
+    throw new Error(`AI 지우기에 실패했습니다 (${res.status}). ${text}`)
   }
 
   return await res.blob()
