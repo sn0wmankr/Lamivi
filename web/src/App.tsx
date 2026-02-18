@@ -14,6 +14,7 @@ type Size = { w: number; h: number }
 const SUPPORTED_LOCALES = ['ko', 'en'] as const
 type Locale = (typeof SUPPORTED_LOCALES)[number]
 type ExportKind = 'png' | 'jpg' | 'webp' | 'pdf' | 'pptx'
+type ExportScope = 'current' | 'selected' | 'all'
 
 type PageSnapshot = {
   width: number
@@ -78,6 +79,9 @@ const BRUSH_MIN = 1
 const BRUSH_MAX = 2000
 const BRUSH_SLIDER_MAX = 1000
 const ERASER_COLOR_BUCKET_STEP = 8
+const ZOOM_MIN = 0.3
+const ZOOM_MAX = 5
+const UPSCALE_OPTIONS = [1, 2, 4, 8] as const
 
 function uid(prefix: string) {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -88,6 +92,28 @@ function uid(prefix: string) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
+}
+
+function splitFilename(name: string): { base: string; ext: string } {
+  const trimmed = name.trim()
+  const idx = trimmed.lastIndexOf('.')
+  if (idx <= 0 || idx === trimmed.length - 1) {
+    return { base: trimmed || 'image', ext: '' }
+  }
+  return { base: trimmed.slice(0, idx), ext: trimmed.slice(idx + 1) }
+}
+
+function buildLamiviFilename(name: string, fallbackExt: string) {
+  const { base, ext } = splitFilename(name)
+  const safeBase = base.replace(/[\\/:*?"<>|]+/g, '_').replaceAll('#', '_')
+  const safeExt = (ext || fallbackExt).replace(/[^a-z0-9]/gi, '').toLowerCase() || fallbackExt
+  return `${safeBase}_lamivi.${safeExt}`
+}
+
+function buildLamiviBundleFilename(name: string, suffix: string, ext: string) {
+  const { base } = splitFilename(name)
+  const safeBase = base.replace(/[\\/:*?"<>|]+/g, '_').replaceAll('#', '_')
+  return `${safeBase}_lamivi${suffix}.${ext}`
 }
 
 function normalizeCropRect(rect: CropRect, maxW: number, maxH: number): CropRect {
@@ -393,6 +419,7 @@ async function renderAssetToDataUrl(
 
 const FONT_FAMILIES = [
   'IBM Plex Sans',
+  'Chosunilbo_myungjo',
   'Fraunces',
   'Georgia',
   'Times New Roman',
@@ -462,6 +489,9 @@ const UI = {
     exportPptx: 'PPTX 내보내기',
     files: '파일',
     removeAsset: '목록에서 제거',
+    selectForExport: '내보내기 선택',
+    selectAllFiles: '전체 선택',
+    unselectAllFiles: '선택 해제',
     clearAllAssets: '모두 삭제',
     emptyFiles: '이미지/PDF 파일을 불러오거나 여기에 드래그하세요. PDF는 페이지 단위로 자동 분리됩니다.',
     assetMeta: (w: number, h: number, t: number) => `${w}×${h} · 텍스트 ${t}`,
@@ -525,6 +555,11 @@ const UI = {
     exportDialogTitle: '내보내기 설정',
     exportDialogDesc: '형식과 품질을 선택하세요.',
     exportFormat: '형식',
+    exportScope: '저장 범위',
+    exportScopeCurrent: '현재 파일',
+    exportScopeSelected: '선택한 파일',
+    exportScopeAll: '전체 파일',
+    exportNoSelected: '선택한 파일이 없습니다',
     exportNow: '내보내기(저장하기)',
     cancel: '취소',
     selectedText: '선택한 텍스트',
@@ -533,11 +568,14 @@ const UI = {
     modeEraser: '모드: AI 지우개',
     modeText: '모드: 텍스트 입력',
     modeCrop: '모드: 잘라내기',
+    modeMove: '모드: 이동',
     textSelectMode: '텍스트 선택',
     crop: '잘라내기',
     zoomIn: '확대',
     zoomOut: '축소',
     zoomReset: '배율 초기화',
+    zoomSlider: '확대/축소 스크롤',
+    zoomHintCtrlWheel: '캔버스 위에서 Ctrl + 휠로 확대/축소',
     cropSelection: '잘라내기 영역',
     cropX: 'X',
     cropY: 'Y',
@@ -577,11 +615,11 @@ const UI = {
     reorderHint: '파일 카드를 드래그해서 순서를 바꿀 수 있습니다.',
     guideTitle: '빠른 시작 가이드',
     guideStepImport: '왼쪽 파일 패널에서 이미지를 불러오거나 드래그하세요.',
-    guideStepTool: '왼쪽 도구에서 AI 복원/AI 지우개/텍스트/잘라내기를 선택하세요.',
+    guideStepTool: '왼쪽 도구에서 AI 복원/AI 지우개/텍스트/잘라내기/이동을 선택하세요.',
     guideStepRun: '브러시로 칠하고 마우스를 떼면 즉시 AI 복원이 실행됩니다.',
     guideStepExport: '히스토리 패널 아래의 내보내기(저장하기)로 결과를 저장하세요.',
     guideMetaImport: '파일 패널 · 드래그 앤 드롭',
-    guideMetaTool: '단축키: B / E / T / C',
+    guideMetaTool: '단축키: B / E / T / C / M',
     guideMetaRun: '드래그 후 마우스를 놓아 실행',
     guideMetaExport: '히스토리 패널 하단 버튼',
     guideClose: '가이드 닫기',
@@ -673,6 +711,9 @@ const UI = {
     exportPptx: 'Export PPTX',
     files: 'Files',
     removeAsset: 'Remove from list',
+    selectForExport: 'Select for export',
+    selectAllFiles: 'Select all',
+    unselectAllFiles: 'Unselect all',
     clearAllAssets: 'Clear all',
     emptyFiles: 'Import images/PDF or drag files here. PDF pages are automatically split.',
     assetMeta: (w: number, h: number, t: number) => `${w}×${h} · text ${t}`,
@@ -736,6 +777,11 @@ const UI = {
     exportDialogTitle: 'Export settings',
     exportDialogDesc: 'Choose format and quality.',
     exportFormat: 'Format',
+    exportScope: 'Save scope',
+    exportScopeCurrent: 'Current file',
+    exportScopeSelected: 'Selected files',
+    exportScopeAll: 'All files',
+    exportNoSelected: 'No selected files',
     exportNow: 'Export (Save)',
     cancel: 'Cancel',
     selectedText: 'Selected text',
@@ -744,11 +790,14 @@ const UI = {
     modeEraser: 'Mode: AI Eraser',
     modeText: 'Mode: Text Insert',
     modeCrop: 'Mode: Crop',
+    modeMove: 'Mode: Move',
     textSelectMode: 'Text select',
     crop: 'Crop',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     zoomReset: 'Reset zoom',
+    zoomSlider: 'Zoom slider',
+    zoomHintCtrlWheel: 'Use Ctrl + wheel over canvas to zoom',
     cropSelection: 'Crop area',
     cropX: 'X',
     cropY: 'Y',
@@ -788,11 +837,11 @@ const UI = {
     reorderHint: 'Drag file cards to reorder pages.',
     guideTitle: 'Quick Start Guide',
     guideStepImport: 'Import files from the left panel or drag and drop.',
-    guideStepTool: 'Pick AI Restore / AI Eraser / Text / Crop from the left tool dock.',
+    guideStepTool: 'Pick AI Restore / AI Eraser / Text / Crop / Move from the left tool dock.',
     guideStepRun: 'Paint with brush and release to run AI restore instantly.',
     guideStepExport: 'Save results with Export (Save) under the history panel.',
     guideMetaImport: 'Files panel · drag and drop',
-    guideMetaTool: 'Shortcut: B / E / T / C',
+    guideMetaTool: 'Shortcut: B / E / T / C / M',
     guideMetaRun: 'Drag brush and release to run',
     guideMetaExport: 'Bottom of history panel',
     guideClose: 'Close guide',
@@ -872,6 +921,7 @@ function App() {
 
   const [tool, setTool] = useState<Tool>('restore')
   const [canvasZoom, setCanvasZoom] = useState(1)
+  const [canvasOffset, setCanvasOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [brushSize, setBrushSize] = useState<number>(() => {
     try {
       const saved = Number(window.localStorage.getItem('lamivi-brush-size'))
@@ -900,9 +950,11 @@ function App() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [pendingExportFormat, setPendingExportFormat] = useState<ExportKind>('png')
   const [pendingExportRatio, setPendingExportRatio] = useState(2)
+  const [pendingExportScope, setPendingExportScope] = useState<ExportScope>('current')
   const [macroRepeatCount, setMacroRepeatCount] = useState(1)
   const [dragAssetId, setDragAssetId] = useState<string | null>(null)
   const [dragOverAssetId, setDragOverAssetId] = useState<string | null>(null)
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
   const [showGuide, setShowGuide] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-show-guide') !== '0'
@@ -1012,6 +1064,49 @@ function App() {
   const [quickBarCollapsed, setQuickBarCollapsed] = useState(false)
   const [textOptionsMode, setTextOptionsMode] = useState<'simple' | 'advanced'>('simple')
   const quickBarDragRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null)
+  const movePanRef = useRef<{ x: number; y: number } | null>(null)
+
+  const selectedAssets = useMemo(
+    () => assets.filter((a) => selectedAssetIds.includes(a.id)),
+    [assets, selectedAssetIds],
+  )
+
+  function setZoom(next: number) {
+    setCanvasZoom(clamp(Number(next.toFixed(2)), ZOOM_MIN, ZOOM_MAX))
+  }
+
+  function zoomBy(delta: number) {
+    setCanvasZoom((prev) => clamp(Number((prev + delta).toFixed(2)), ZOOM_MIN, ZOOM_MAX))
+  }
+
+  function zoomFromWheel(deltaY: number) {
+    const step = deltaY > 0 ? -0.08 : 0.08
+    zoomBy(step)
+  }
+
+  function toggleAssetExportSelection(assetId: string) {
+    setSelectedAssetIds((prev) => {
+      if (prev.includes(assetId)) {
+        return prev.filter((id) => id !== assetId)
+      }
+      return [...prev, assetId]
+    })
+  }
+
+  function exportTargets(scope: ExportScope): PageAsset[] {
+    if (scope === 'current') return active ? [active] : []
+    if (scope === 'selected') return selectedAssets
+    return assets
+  }
+
+  function normalizeExportRatio(value: number) {
+    const nearest = UPSCALE_OPTIONS.reduce((best, option) => {
+      const bestDist = Math.abs(best - value)
+      const nextDist = Math.abs(option - value)
+      return nextDist < bestDist ? option : best
+    }, UPSCALE_OPTIONS[0])
+    return nearest
+  }
 
   const fit = useMemo(() => {
     if (!active) return { scale: 1, ox: 0, oy: 0 }
@@ -1022,15 +1117,16 @@ function App() {
     const scale = baseScale * canvasZoom
     const w = active.width * scale
     const h = active.height * scale
-    const ox = (wrapSize.w - w) / 2
-    const oy = (wrapSize.h - h) / 2
+    const ox = (wrapSize.w - w) / 2 + canvasOffset.x
+    const oy = (wrapSize.h - h) / 2 + canvasOffset.y
     return { scale, ox, oy }
-  }, [active, wrapSize, canvasZoom])
+  }, [active, wrapSize, canvasZoom, canvasOffset])
 
   useEffect(() => {
     setSelectedTextId(null)
     setCropRect(null)
     cropStartRef.current = null
+    setCanvasOffset({ x: 0, y: 0 })
     if (!active) {
       setBaseImg(null)
       return
@@ -1046,6 +1142,10 @@ function App() {
 
   useEffect(() => {
     assetsRef.current = assets
+  }, [assets])
+
+  useEffect(() => {
+    setSelectedAssetIds((prev) => prev.filter((id) => assets.some((a) => a.id === id)))
   }, [assets])
 
   useEffect(() => {
@@ -1377,6 +1477,11 @@ function App() {
         setTool('crop')
         return
       }
+      if (key === 'm') {
+        e.preventDefault()
+        setTool('move')
+        return
+      }
       if (key === 'e') {
         e.preventDefault()
         setTool('eraser')
@@ -1632,6 +1737,12 @@ function App() {
     e.preventDefault()
     setIsFileDragOver(false)
     void handleFiles(e.dataTransfer.files)
+  }
+
+  function onCanvasWrapWheel(e: ReactWheelEvent<HTMLDivElement>) {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    zoomFromWheel(e.deltaY)
   }
 
   function onAssetDragStart(e: DragEvent<HTMLDivElement>, id: string) {
@@ -1964,6 +2075,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (!stage || !active || busy) return
     setDragMetrics(null)
 
+    if (tool === 'move') {
+      const pointer = stage.getPointerPosition()
+      if (!pointer) return
+      movePanRef.current = { x: pointer.x, y: pointer.y }
+      return
+    }
+
     const targetClass = e.target.getClassName?.()
     if (targetClass === 'Text' && tool === 'text') {
       return
@@ -1995,6 +2113,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   function onStageMouseMove() {
     const stage = stageRef.current
     if (!stage || !active) return
+
+    if (tool === 'move' && movePanRef.current) {
+      const pointer = stage.getPointerPosition()
+      if (!pointer) return
+      const dx = pointer.x - movePanRef.current.x
+      const dy = pointer.y - movePanRef.current.y
+      movePanRef.current = { x: pointer.x, y: pointer.y }
+      setCanvasOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }))
+      return
+    }
+
     updateBrushCursor(stage)
 
     if (tool === 'crop') {
@@ -2022,6 +2151,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   async function onStageMouseUp() {
+    movePanRef.current = null
+
     if (tool === 'crop') {
       cropStartRef.current = null
       return
@@ -2042,6 +2173,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   function onStageMouseLeave() {
     drawing.current = null
     cropStartRef.current = null
+    movePanRef.current = null
     setBrushCursor((prev) => ({ ...prev, visible: false }))
     setDragMetrics(null)
   }
@@ -2194,14 +2326,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportPngCurrent(pixelRatio: number) {
-    if (!active) return
+  async function exportPngSet(targets: PageAsset[], pixelRatio: number) {
+    if (targets.length === 0) return
     setBusy(ui.exporting)
-    setProgressState({ label: ui.exporting, value: 0, total: 1, indeterminate: true })
+    setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
-      const dataUrl = await renderAssetToDataUrl(active, pixelRatio)
-      const blob = await dataUrlToBlob(dataUrl)
-      downloadBlob(blob, `${active.name.replaceAll('#', '_')}.png`)
+      for (let idx = 0; idx < targets.length; idx += 1) {
+        const target = targets[idx]!
+        const dataUrl = await renderAssetToDataUrl(target, pixelRatio)
+        const blob = await dataUrlToBlob(dataUrl)
+        downloadBlob(blob, buildLamiviFilename(target.name, 'png'))
+        setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
+      }
       setStatus(ui.exportedPng)
     } finally {
       setBusy(null)
@@ -2209,14 +2345,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportJpgCurrent(pixelRatio: number) {
-    if (!active) return
+  async function exportJpgSet(targets: PageAsset[], pixelRatio: number) {
+    if (targets.length === 0) return
     setBusy(ui.exporting)
-    setProgressState({ label: ui.exporting, value: 0, total: 1, indeterminate: true })
+    setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
-      const dataUrl = await renderAssetToDataUrl(active, pixelRatio, 'image/jpeg', 0.92)
-      const blob = await dataUrlToBlob(dataUrl)
-      downloadBlob(blob, `${active.name.replaceAll('#', '_')}.jpg`)
+      for (let idx = 0; idx < targets.length; idx += 1) {
+        const target = targets[idx]!
+        const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', 0.92)
+        const blob = await dataUrlToBlob(dataUrl)
+        downloadBlob(blob, buildLamiviFilename(target.name, 'jpg'))
+        setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
+      }
       setStatus(ui.done)
     } finally {
       setBusy(null)
@@ -2224,14 +2364,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportWebpCurrent(pixelRatio: number) {
-    if (!active) return
+  async function exportWebpSet(targets: PageAsset[], pixelRatio: number) {
+    if (targets.length === 0) return
     setBusy(ui.exporting)
-    setProgressState({ label: ui.exporting, value: 0, total: 1, indeterminate: true })
+    setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
-      const dataUrl = await renderAssetToDataUrl(active, pixelRatio, 'image/webp', 0.92)
-      const blob = await dataUrlToBlob(dataUrl)
-      downloadBlob(blob, `${active.name.replaceAll('#', '_')}.webp`)
+      for (let idx = 0; idx < targets.length; idx += 1) {
+        const target = targets[idx]!
+        const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', 0.92)
+        const blob = await dataUrlToBlob(dataUrl)
+        downloadBlob(blob, buildLamiviFilename(target.name, 'webp'))
+        setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
+      }
       setStatus(ui.done)
     } finally {
       setBusy(null)
@@ -2239,18 +2383,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportPdfAll(pixelRatio: number) {
-    if (assets.length === 0) return
+  async function exportPdfSet(targets: PageAsset[], pixelRatio: number, scope: ExportScope) {
+    if (targets.length === 0) return
     setBusy(ui.exportingPdf)
     setStatus(ui.exportingPdf)
     runCancelableStart()
-    setProgressState({ label: ui.exportingPdf, value: 0, total: Math.max(1, assets.length), indeterminate: false })
+    setProgressState({ label: ui.exportingPdf, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
       let pdf: jsPDF | null = null
 
-      for (let idx = 0; idx < assets.length; idx++) {
+      for (let idx = 0; idx < targets.length; idx++) {
         if (cancelRequestedRef.current) break
-        const a = assets[idx]!
+        const a = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(a, pixelRatio, 'image/jpeg', 0.92)
 
         const pageW = a.width
@@ -2265,7 +2409,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           pdf.addPage([pageW, pageH], pageW >= pageH ? 'landscape' : 'portrait')
         }
         pdf.addImage(dataUrl, 'JPEG', 0, 0, pageW, pageH)
-        setProgressState({ label: ui.exportingPdf, value: idx + 1, total: Math.max(1, assets.length), indeterminate: false })
+        setProgressState({ label: ui.exportingPdf, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
 
       if (!pdf) throw new Error(ui.noPages)
@@ -2274,7 +2418,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         return
       }
       const blob = pdf.output('blob')
-      downloadBlob(blob, 'lamivi-export.pdf')
+      const first = targets[0]!
+      const filename = targets.length === 1
+        ? buildLamiviFilename(first.name, 'pdf')
+        : buildLamiviBundleFilename(first.name, `_${scope}`, 'pdf')
+      downloadBlob(blob, filename)
       setStatus(ui.exportedPdf)
     } finally {
       setBusy(null)
@@ -2283,18 +2431,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportPptxAll(pixelRatio: number) {
-    if (assets.length === 0) return
+  async function exportPptxSet(targets: PageAsset[], pixelRatio: number, scope: ExportScope) {
+    if (targets.length === 0) return
     setBusy(ui.exporting)
     setStatus(ui.exporting)
     runCancelableStart()
-    setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, assets.length), indeterminate: false })
+    setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
       const pptx = new PptxGenJS()
       pptx.layout = 'LAYOUT_WIDE'
-      for (let idx = 0; idx < assets.length; idx += 1) {
+      for (let idx = 0; idx < targets.length; idx += 1) {
         if (cancelRequestedRef.current) break
-        const asset = assets[idx]!
+        const asset = targets[idx]!
         const slide = pptx.addSlide()
         const baseOnly = { ...asset, texts: [] }
         const dataUrl = await renderAssetToDataUrl(baseOnly, pixelRatio, 'image/png')
@@ -2327,14 +2475,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             valign: 'top',
           })
         }
-        setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, assets.length), indeterminate: false })
+        setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
       if (cancelRequestedRef.current) {
         setStatus(ui.taskCancelled)
         return
       }
       const out = (await pptx.write({ outputType: 'blob' })) as Blob
-      downloadBlob(out, 'lamivi-export.pptx')
+      const first = targets[0]!
+      const filename = targets.length === 1
+        ? buildLamiviFilename(first.name, 'pptx')
+        : buildLamiviBundleFilename(first.name, `_${scope}`, 'pptx')
+      downloadBlob(out, filename)
       setStatus(ui.done)
     } finally {
       setBusy(null)
@@ -2365,15 +2517,21 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
   async function confirmExport() {
     if (!exportDialogOpen) return
-    const ratio = clamp(pendingExportRatio, 1, 3)
+    const ratio = normalizeExportRatio(pendingExportRatio)
+    const scope = pendingExportScope
+    const targets = exportTargets(scope)
+    if (targets.length === 0) {
+      setStatus(ui.exportNoSelected)
+      return
+    }
     setExportPixelRatio(ratio)
     const kind = pendingExportFormat
     setExportDialogOpen(false)
-    if (kind === 'png') return await exportPngCurrent(ratio)
-    if (kind === 'jpg') return await exportJpgCurrent(ratio)
-    if (kind === 'webp') return await exportWebpCurrent(ratio)
-    if (kind === 'pdf') return await exportPdfAll(ratio)
-    return await exportPptxAll(ratio)
+    if (kind === 'png') return await exportPngSet(targets, ratio)
+    if (kind === 'jpg') return await exportJpgSet(targets, ratio)
+    if (kind === 'webp') return await exportWebpSet(targets, ratio)
+    if (kind === 'pdf') return await exportPdfSet(targets, ratio, scope)
+    return await exportPptxSet(targets, ratio, scope)
   }
 
   function cancelInlineEdit() {
@@ -2425,7 +2583,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     })
   }
 
-  const stageCursor = tool === 'restore' || tool === 'eraser' ? 'none' : tool === 'crop' ? 'crosshair' : 'default'
+  const stageCursor = tool === 'restore' || tool === 'eraser'
+    ? 'none'
+    : tool === 'crop'
+      ? 'crosshair'
+      : tool === 'move'
+        ? 'grab'
+        : 'default'
   const normalizedRestoreDevice = aiDevice.toLowerCase()
   const restoreDeviceLabel = normalizedRestoreDevice.includes('cuda') || normalizedRestoreDevice.includes('gpu') ? 'GPU' : normalizedRestoreDevice.includes('cpu') ? 'CPU' : 'AUTO'
   const aiStatusText = aiReady ? ui.aiReady : ui.aiInit
@@ -2858,7 +3022,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               {assets.map((a) => (
                 <div
                   key={a.id}
-                  className={`asset ${a.id === activeId ? 'active' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
+                  className={`asset ${a.id === activeId ? 'active' : ''} ${selectedAssetIds.includes(a.id) ? 'selected' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
                   onClick={() => setActiveId(a.id)}
                   draggable
                   onDragStart={(e) => onAssetDragStart(e, a.id)}
@@ -2873,6 +3037,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   <img className="thumb" src={a.baseDataUrl} alt={a.name} />
                   <div className="assetMeta">
                     <div className="assetTopRow">
+                      <label className="assetSelect">
+                        <input
+                          type="checkbox"
+                          checked={selectedAssetIds.includes(a.id)}
+                          onChange={() => toggleAssetExportSelection(a.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={ui.selectForExport}
+                        />
+                        <span>{ui.selectForExport}</span>
+                      </label>
                       <div className="assetName">{a.name}</div>
                       <button
                         className="assetRemoveBtn"
@@ -2895,6 +3069,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
           </div>
           <div className="panelFooter centerActions">
+            <button className="btn" onClick={() => setSelectedAssetIds(assets.map((a) => a.id))} disabled={assets.length === 0}>
+              {ui.selectAllFiles}
+            </button>
+            <button className="btn" onClick={() => setSelectedAssetIds([])} disabled={selectedAssetIds.length === 0}>
+              {ui.unselectAllFiles}
+            </button>
             <label className="btn">
               {ui.import}
               <input
@@ -2912,7 +3092,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           </div>
         </div>
 
-        <div className={`canvasWrap ${tool === 'text' ? 'textMode' : ''} ${tool === 'crop' ? 'cropMode' : ''} ${guideFocusTarget === 'canvas' ? 'guideFlash' : ''}`} ref={wrapRef}>
+        <div
+          className={`canvasWrap ${tool === 'text' ? 'textMode' : ''} ${tool === 'crop' ? 'cropMode' : ''} ${tool === 'move' ? 'moveMode' : ''} ${guideFocusTarget === 'canvas' ? 'guideFlash' : ''}`}
+          ref={wrapRef}
+          onWheel={onCanvasWrapWheel}
+        >
           {active ? (
             <div className={`leftDock ${guideFocusTarget === 'tools' ? 'guideFlash' : ''}`}>
               <button
@@ -2956,6 +3140,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 ▣
               </button>
               <button
+                className={`iconDockBtn ${tool === 'move' ? 'active' : ''}`}
+                title={ui.move}
+                aria-label={ui.move}
+                data-tip={ui.move}
+                data-key="M"
+                onClick={() => setTool('move')}
+              >
+                ✥
+              </button>
+              <button
                 className="iconDockBtn"
                 title={ui.undoAction}
                 aria-label={ui.undoAction}
@@ -2979,7 +3173,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               </button>
             </div>
           ) : null}
-          {active ? <div className="modeBadge">{tool === 'text' ? ui.modeText : tool === 'crop' ? ui.modeCrop : tool === 'restore' ? ui.modeRestore : ui.modeEraser}</div> : null}
+          {active ? <div className="modeBadge">{tool === 'text' ? ui.modeText : tool === 'crop' ? ui.modeCrop : tool === 'move' ? ui.modeMove : tool === 'restore' ? ui.modeRestore : ui.modeEraser}</div> : null}
           {showGuide ? (
             <div className="guideCard">
               <button className="guideCardClose" onClick={() => setShowGuide(false)} aria-label={ui.guideClose} title={ui.guideClose}>×</button>
@@ -3634,15 +3828,28 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         </div>
         <div className={`rightBottomActions ${guideFocusTarget === 'export' ? 'guideFlash' : ''}`}>
           <div className="zoomDockHorizontal">
-            <button className="btn" onClick={() => setCanvasZoom((prev) => clamp(Number((prev - 0.1).toFixed(2)), 0.5, 3))} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
-            <button className="btn zoomValueBtn" onClick={() => setCanvasZoom(1)} title={ui.zoomReset} aria-label={ui.zoomReset}>{Math.round(canvasZoom * 100)}%</button>
-            <button className="btn" onClick={() => setCanvasZoom((prev) => clamp(Number((prev + 0.1).toFixed(2)), 0.5, 3))} title={ui.zoomIn} aria-label={ui.zoomIn}>＋</button>
+            <button className="btn" onClick={() => zoomBy(-0.1)} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
+            <button className="btn zoomValueBtn" onClick={() => { setZoom(1); setCanvasOffset({ x: 0, y: 0 }) }} title={ui.zoomReset} aria-label={ui.zoomReset}>{Math.round(canvasZoom * 100)}%</button>
+            <button className="btn" onClick={() => zoomBy(0.1)} title={ui.zoomIn} aria-label={ui.zoomIn}>＋</button>
+            <input
+              className="zoomSlider"
+              type="range"
+              min={ZOOM_MIN}
+              max={ZOOM_MAX}
+              step={0.01}
+              value={canvasZoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              aria-label={ui.zoomSlider}
+              title={ui.zoomSlider}
+            />
+            <div className="zoomHint">{ui.zoomHintCtrlWheel}</div>
           </div>
           <button
             className="btn"
             onClick={() => {
               setPendingExportRatio(exportPixelRatio)
               setPendingExportFormat('png')
+              setPendingExportScope('current')
               setExportDialogOpen(true)
             }}
             disabled={assets.length === 0 || !!busy}
@@ -3703,14 +3910,23 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="pptx">PPTX</option>
               </select>
             </div>
+            <div>
+              <div className="label">{ui.exportScope}</div>
+              <select className="select" value={pendingExportScope} onChange={(e) => setPendingExportScope(e.target.value as ExportScope)}>
+                <option value="current">{ui.exportScopeCurrent}</option>
+                <option value="selected">{ui.exportScopeSelected}</option>
+                <option value="all">{ui.exportScopeAll}</option>
+              </select>
+            </div>
             <select
               className="select"
               value={String(pendingExportRatio)}
-              onChange={(e) => setPendingExportRatio(clamp(Number(e.target.value), 1, 3))}
+              onChange={(e) => setPendingExportRatio(normalizeExportRatio(Number(e.target.value)))}
             >
               <option value="1">1x</option>
               <option value="2">2x</option>
-              <option value="3">3x</option>
+              <option value="4">4x</option>
+              <option value="8">8x</option>
             </select>
             <div className="dialogActions">
               <button className="btn" onClick={() => setExportDialogOpen(false)}>

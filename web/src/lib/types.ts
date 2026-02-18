@@ -1,12 +1,9 @@
-export type Tool = 'brush' | 'text' | 'move'
-
-export type MaskMode = 'add' | 'sub'
+export type Tool = 'restore' | 'eraser' | 'text' | 'crop' | 'move'
 
 export type MaskStroke = {
   id: string
   points: number[]
   strokeWidth: number
-  mode: MaskMode
 }
 
 export type TextAlign = 'left' | 'center' | 'right'
@@ -19,8 +16,26 @@ export type TextItem = {
   fontFamily: string
   fontSize: number
   fill: string
+  fontWeight: number
+  fontStyle: 'normal' | 'italic'
   rotation: number
   align: TextAlign
+  visible: boolean
+  locked: boolean
+  opacity: number
+  groupId: string
+}
+
+export type LayerGroup = {
+  id: string
+  name: string
+  collapsed: boolean
+}
+
+export type HistoryEntry = {
+  label: string
+  snapshot: string
+  timestamp: number
 }
 
 export type PageAsset = {
@@ -30,9 +45,6 @@ export type PageAsset = {
   height: number
   baseDataUrl: string
   maskStrokes: MaskStroke[]
-  maskUndo: MaskStroke[][]
-  maskRedo: MaskStroke[][]
+  groups: LayerGroup[]
   texts: TextItem[]
 }
-
-export type Engine = 'auto'
