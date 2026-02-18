@@ -107,10 +107,12 @@ function splitFilename(name: string): { base: string; ext: string } {
   return { base: trimmed.slice(0, idx), ext: trimmed.slice(idx + 1) }
 }
 
-function buildLamiviFilename(name: string, fallbackExt: string) {
-  const { base, ext } = splitFilename(name)
-  const safeBase = base.replace(/[\\/:*?"<>|]+/g, '_').replaceAll('#', '_')
-  const safeExt = (ext || fallbackExt).replace(/[^a-z0-9]/gi, '').toLowerCase() || fallbackExt
+function buildLamiviFilename(name: string, exportExt: string) {
+  const trimmed = name.trim() || 'image'
+  const withPageToken = trimmed.replaceAll('#', '_')
+  const base = withPageToken.replace(/\.(png|jpe?g|webp|pdf|pptx)$/i, '')
+  const safeBase = base.replace(/[\\/:*?"<>|]+/g, '_')
+  const safeExt = exportExt.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'png'
   return `${safeBase}_lamivi.${safeExt}`
 }
 
