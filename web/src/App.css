@@ -1391,6 +1391,12 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+.activityPanelActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .activityPanelTitleRow .activityPanelTitle {
   padding: 0;
   border: 0;
@@ -1402,6 +1408,21 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding: 8px 10px 0;
+}
+
+.unsavedBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 174, 66, 0.45);
+  background: rgba(255, 174, 66, 0.16);
+  color: #ffe5bd;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
 .activityFilterRow .tabBtn {

@@ -672,7 +672,9 @@ const UI = {
     activityShow: '로그 보기',
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
+    activityClear: '로그 비우기',
     activityCopied: '작업 로그를 복사했습니다',
+    activityCleared: '작업 로그를 비웠습니다',
     activityEmpty: '아직 작업 로그가 없습니다.',
     activityFilterAll: '전체',
     activityFilterError: '오류',
@@ -694,6 +696,7 @@ const UI = {
     settingsCopyDiagnostics: '환경 진단 복사',
     settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
     unsavedWarn: '저장되지 않은 변경사항이 있습니다.',
+    unsavedBadge: '미저장 변경',
     errCanvasUnavailable: '캔버스를 사용할 수 없습니다.',
     errPngConvertFailed: 'PNG로 변환하지 못했습니다.',
     errImageLoadFailed: '이미지를 불러오지 못했습니다.',
@@ -931,7 +934,9 @@ const UI = {
     activityShow: 'Show log',
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
+    activityClear: 'Clear log',
     activityCopied: 'Activity log copied',
+    activityCleared: 'Activity log cleared',
     activityEmpty: 'No activity logs yet.',
     activityFilterAll: 'All',
     activityFilterError: 'Error',
@@ -953,6 +958,7 @@ const UI = {
     settingsCopyDiagnostics: 'Copy diagnostics',
     settingsCopiedDiagnostics: 'Diagnostics copied',
     unsavedWarn: 'You have unsaved changes.',
+    unsavedBadge: 'Unsaved changes',
     errCanvasUnavailable: 'Canvas is unavailable.',
     errPngConvertFailed: 'Failed to convert to PNG.',
     errImageLoadFailed: 'Failed to load image.',
@@ -1094,9 +1100,23 @@ function App() {
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
-  const [showActivityLog, setShowActivityLog] = useState(false)
+  const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-activity-open') === '1'
+    } catch {
+      return false
+    }
+  })
   const [toastLog, setToastLog] = useState<ToastLogItem[]>([])
-  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all')
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-activity-filter')
+      if (saved === 'all' || saved === 'error' || saved === 'success' || saved === 'working') return saved
+    } catch {
+      // ignore
+    }
+    return 'all'
+  })
   const [activityNow, setActivityNow] = useState<number>(() => Date.now())
   const [preferredDevice, setPreferredDevice] = useState<'cpu' | 'cuda'>(() => {
     try {
@@ -1556,6 +1576,22 @@ function App() {
     const timer = window.setInterval(() => setActivityNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [showActivityLog])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-activity-open', showActivityLog ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [showActivityLog])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-activity-filter', activityFilter)
+    } catch {
+      // ignore
+    }
+  }, [activityFilter])
 
   useEffect(() => {
     const saved = selectedTextId ? quickBarOffsetsRef.current[selectedTextId] : null
@@ -3205,6 +3241,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
+  function clearActivityLog() {
+    setToastLog([])
+    setStatus(ui.activityCleared)
+  }
+
   async function setDeviceMode(next: 'cpu' | 'cuda') {
     if (switchingDevice) return
     if (next === 'cuda' && !gpuSelectable) return
@@ -3266,6 +3307,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </span>
             <span className="deviceDetailText">{ui.aiRuntimeDetail(restoreDeviceLabel, requestedDeviceLabel, selectedAssetIds.length)}</span>
           </div>
+          {hasUnsavedChanges ? <span className="unsavedBadge">{ui.unsavedBadge}</span> : null}
 
           <button className="activityBtn" onClick={() => setShowActivityLog((prev) => !prev)}>
             {showActivityLog ? ui.activityHide : ui.activityShow}
@@ -4364,7 +4406,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         <div className="activityPanel">
           <div className="activityPanelTitleRow">
             <div className="activityPanelTitle">{ui.activityLog}</div>
-            <button className="btn" onClick={() => void copyActivityLog()}>{ui.activityCopy}</button>
+            <div className="activityPanelActions">
+              <button className="btn" onClick={() => void copyActivityLog()} disabled={filteredToastLog.length === 0}>{ui.activityCopy}</button>
+              <button className="btn" onClick={clearActivityLog} disabled={toastLog.length === 0}>{ui.activityClear}</button>
+            </div>
           </div>
           <div className="activityFilterRow">
             <button className={`tabBtn ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>{ui.activityFilterAll}</button>
