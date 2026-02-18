@@ -498,6 +498,7 @@ const UI = {
     selectForExport: '내보내기 선택',
     selectAllFiles: '전체 선택',
     unselectAllFiles: '선택 해제',
+    invertSelection: '선택 반전',
     clearAllAssets: '모두 삭제',
     emptyFiles: '이미지/PDF 파일을 불러오거나 여기에 드래그하세요. PDF는 페이지 단위로 자동 분리됩니다.',
     assetMeta: (w: number, h: number, t: number) => `${w}×${h} · 텍스트 ${t}`,
@@ -670,6 +671,8 @@ const UI = {
     activityLog: '작업 로그',
     activityShow: '로그 보기',
     activityHide: '로그 닫기',
+    activityCopy: '로그 복사',
+    activityCopied: '작업 로그를 복사했습니다',
     activityEmpty: '아직 작업 로그가 없습니다.',
     activityFilterAll: '전체',
     activityFilterError: '오류',
@@ -690,6 +693,7 @@ const UI = {
     settingsRepo: '저장소',
     settingsCopyDiagnostics: '환경 진단 복사',
     settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
+    unsavedWarn: '저장되지 않은 변경사항이 있습니다.',
     errCanvasUnavailable: '캔버스를 사용할 수 없습니다.',
     errPngConvertFailed: 'PNG로 변환하지 못했습니다.',
     errImageLoadFailed: '이미지를 불러오지 못했습니다.',
@@ -753,6 +757,7 @@ const UI = {
     selectForExport: 'Select for export',
     selectAllFiles: 'Select all',
     unselectAllFiles: 'Unselect all',
+    invertSelection: 'Invert selection',
     clearAllAssets: 'Clear all',
     emptyFiles: 'Import images/PDF or drag files here. PDF pages are automatically split.',
     assetMeta: (w: number, h: number, t: number) => `${w}×${h} · text ${t}`,
@@ -925,6 +930,8 @@ const UI = {
     activityLog: 'Activity log',
     activityShow: 'Show log',
     activityHide: 'Hide log',
+    activityCopy: 'Copy log',
+    activityCopied: 'Activity log copied',
     activityEmpty: 'No activity logs yet.',
     activityFilterAll: 'All',
     activityFilterError: 'Error',
@@ -945,6 +952,7 @@ const UI = {
     settingsRepo: 'Repository',
     settingsCopyDiagnostics: 'Copy diagnostics',
     settingsCopiedDiagnostics: 'Diagnostics copied',
+    unsavedWarn: 'You have unsaved changes.',
     errCanvasUnavailable: 'Canvas is unavailable.',
     errPngConvertFailed: 'Failed to convert to PNG.',
     errImageLoadFailed: 'Failed to load image.',
@@ -1031,6 +1039,7 @@ function App() {
   const [busy, setBusy] = useState<string | null>(null)
   const [status, setStatus] = useState<string>(ui.ready)
   const [toast, setToast] = useState<string | null>(null)
+  const [toastAt, setToastAt] = useState<number | null>(null)
   const [aiDevice, setAiDevice] = useState<string>('initializing')
   const [aiReady, setAiReady] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
@@ -1075,6 +1084,7 @@ function App() {
   const [dragOverAssetId, setDragOverAssetId] = useState<string | null>(null)
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
   const [flashAssetId, setFlashAssetId] = useState<string | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showGuide, setShowGuide] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-show-guide') !== '0'
@@ -1190,6 +1200,9 @@ function App() {
   const [textOptionsMode, setTextOptionsMode] = useState<'simple' | 'advanced'>('simple')
   const quickBarDragRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null)
   const movePanRef = useRef<{ x: number; y: number } | null>(null)
+  const assetCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const exportDialogRef = useRef<HTMLDivElement | null>(null)
+  const dirtyInitRef = useRef(false)
 
   const selectedAssets = useMemo(
     () => assets.filter((a) => selectedAssetIds.includes(a.id)),
@@ -1230,6 +1243,16 @@ function App() {
       })
     }
     lastSelectionAnchorIdRef.current = assetId
+  }
+
+  function invertAssetSelection() {
+    setSelectedAssetIds((prev) => assets.map((a) => a.id).filter((id) => !prev.includes(id)))
+  }
+
+  function scrollToAsset(assetId: string) {
+    const node = assetCardRefs.current[assetId]
+    if (!node) return
+    node.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }
 
   function exportTargets(scope: ExportScope): PageAsset[] {
@@ -1291,6 +1314,24 @@ function App() {
   }, [assets])
 
   useEffect(() => {
+    if (!dirtyInitRef.current) {
+      dirtyInitRef.current = true
+      return
+    }
+    setHasUnsavedChanges(true)
+  }, [assets, activeId])
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return
+      event.preventDefault()
+      event.returnValue = ui.unsavedWarn
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasUnsavedChanges, ui.unsavedWarn])
+
+  useEffect(() => {
     if (!flashAssetId) return
     const timer = window.setTimeout(() => setFlashAssetId(null), 1200)
     return () => window.clearTimeout(timer)
@@ -1346,6 +1387,47 @@ function App() {
       // ignore
     }
   }, [pendingExportFormat, pendingExportRatio, pendingExportScope, pendingExportQuality])
+
+  useEffect(() => {
+    if (!exportDialogOpen) return
+    const root = exportDialogRef.current
+    if (!root) return
+    const first = root.querySelector<HTMLElement>('button,select,input,[tabindex]:not([tabindex="-1"])')
+    first?.focus()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!exportDialogOpen) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setExportDialogOpen(false)
+        return
+      }
+      if (event.key === 'Enter') {
+        const target = event.target as HTMLElement | null
+        if (target && target.tagName === 'BUTTON') return
+        event.preventDefault()
+        void confirmExport()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusables = Array.from(
+        root.querySelectorAll<HTMLElement>('button:not([disabled]),select:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])'),
+      )
+      if (focusables.length === 0) return
+      const current = document.activeElement as HTMLElement | null
+      const idx = focusables.indexOf(current ?? focusables[0]!)
+      if (event.shiftKey && idx <= 0) {
+        event.preventDefault()
+        focusables[focusables.length - 1]?.focus()
+      } else if (!event.shiftKey && idx >= focusables.length - 1) {
+        event.preventDefault()
+        focusables[0]?.focus()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [exportDialogOpen])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1515,10 +1597,12 @@ function App() {
   useEffect(() => {
     if (busy) {
       setToast(busy)
+      setToastAt(Date.now())
       return
     }
     if (!status || status === ui.ready) return
     setToast(status)
+    setToastAt(Date.now())
     const timer = window.setTimeout(() => setToast(null), 2300)
     return () => window.clearTimeout(timer)
   }, [busy, status, ui.ready])
@@ -1619,6 +1703,18 @@ function App() {
       const key = e.key.toLowerCase()
       const meta = e.metaKey || e.ctrlKey
 
+      if (exportDialogOpen && key === 'escape') {
+        e.preventDefault()
+        setExportDialogOpen(false)
+        return
+      }
+
+      if (showShortcutsHelp && key === 'escape') {
+        e.preventDefault()
+        setShowShortcutsHelp(false)
+        return
+      }
+
       if (key === '?' || key === 'f1') {
         e.preventDefault()
         setShowShortcutsHelp((prev) => !prev)
@@ -1678,7 +1774,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedText, active, selectedAssetIds.length, ui.selectionCleared])
+  }, [selectedText, active, selectedAssetIds.length, ui.selectionCleared, exportDialogOpen, showShortcutsHelp])
 
   useEffect(() => {
     return () => {
@@ -2577,6 +2673,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
+      setHasUnsavedChanges(false)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2601,6 +2698,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
+      setHasUnsavedChanges(false)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2625,6 +2723,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
       setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
+      setHasUnsavedChanges(false)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2672,6 +2771,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         : buildLamiviBundleFilename(first.name, `_${scope}`, 'pdf')
       downloadBlob(blob, filename)
       setStatus(ui.exportedFile(filename))
+      setHasUnsavedChanges(false)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2736,6 +2836,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         : buildLamiviBundleFilename(first.name, `_${scope}`, 'pptx')
       downloadBlob(out, filename)
       setStatus(ui.exportedFile(filename))
+      setHasUnsavedChanges(false)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2794,6 +2895,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
     setMacroRunningTool(toolKind)
     setMacroRunningMode(mode)
+    setStatus(mode === 'all' ? ui.macroRunningAll : ui.macroRunningSelected)
     try {
       if (toolKind === 'restore') {
         await runMacroRepeatRestore(targets)
@@ -3079,6 +3181,30 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
+  async function copyActivityLog() {
+    const lines = filteredToastLog.map((item) => `[${formatLogTimestamp(item.at)}] ${activityKindLabel(item)}: ${item.text}`)
+    const text = lines.length > 0 ? lines.join('\n') : ui.activityEmpty
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        ta.style.pointerEvents = 'none'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setStatus(ui.activityCopied)
+    } catch {
+      setStatus(text)
+    }
+  }
+
   async function setDeviceMode(next: 'cpu' | 'cuda') {
     if (switchingDevice) return
     if (next === 'cuda' && !gpuSelectable) return
@@ -3336,6 +3462,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               {assets.map((a) => (
                 <div
                   key={a.id}
+                  ref={(node) => {
+                    assetCardRefs.current[a.id] = node
+                  }}
                   className={`asset ${a.id === activeId ? 'active' : ''} ${selectedAssetIds.includes(a.id) ? 'selected' : ''} ${a.id === flashAssetId ? 'flash' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
                   onClick={(e) => onAssetCardClick(e, a.id)}
                   draggable
@@ -3384,6 +3513,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button className="btn" onClick={() => setSelectedAssetIds([])} disabled={selectedAssetIds.length === 0}>
               {ui.unselectAllFiles}
             </button>
+            <button className="btn" onClick={invertAssetSelection} disabled={assets.length === 0}>
+              {ui.invertSelection}
+            </button>
             <label className="btn">
               {ui.import}
               <input
@@ -3399,7 +3531,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </button>
             <div className="footerHint">
               {ui.reorderHint} · {ui.selectionHint}
-              {selectedAssetIds.length > 0 ? <span className="selectionCountBadge">{ui.selectedFilesCount(selectedAssetIds.length)}</span> : null}
+              {selectedAssetIds.length > 0 ? (
+                <button
+                  className="selectionCountBadge"
+                  onClick={() => scrollToAsset(selectedAssetIds[0]!)}
+                  title={ui.selectionHint}
+                >
+                  {ui.selectedFilesCount(selectedAssetIds.length)}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -4222,7 +4362,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       </div>
       {showActivityLog ? (
         <div className="activityPanel">
-          <div className="activityPanelTitle">{ui.activityLog}</div>
+          <div className="activityPanelTitleRow">
+            <div className="activityPanelTitle">{ui.activityLog}</div>
+            <button className="btn" onClick={() => void copyActivityLog()}>{ui.activityCopy}</button>
+          </div>
           <div className="activityFilterRow">
             <button className={`tabBtn ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>{ui.activityFilterAll}</button>
             <button className={`tabBtn ${activityFilter === 'error' ? 'active' : ''}`} onClick={() => setActivityFilter('error')}>{ui.activityFilterError}</button>
@@ -4276,7 +4419,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       ) : null}
       {exportDialogOpen ? (
         <div className="dialogBackdrop" onClick={() => setExportDialogOpen(false)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="dialog" ref={exportDialogRef} onClick={(e) => e.stopPropagation()}>
             <div className="dialogTitle">{ui.exportDialogTitle}</div>
             <div className="dialogHint">{ui.exportDialogDesc}</div>
             <div>
@@ -4378,7 +4521,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           ) : null}
         </div>
       ) : null}
-      {toast ? <div className={`toast tone-${statusTone(toast)}`}><span className="statusIcon">{statusIcon(toast)}</span>{toast}</div> : null}
+      {toast ? (
+        <div className={`toast tone-${statusTone(toast)}`}>
+          <span className="statusIcon">{statusIcon(toast)}</span>
+          <span>{toast}</span>
+          {toastAt ? <span className="toastTime">{formatLogTimestamp(toastAt)}</span> : null}
+        </div>
+      ) : null}
     </div>
   )
 }
