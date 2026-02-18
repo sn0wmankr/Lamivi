@@ -3174,6 +3174,26 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
           ) : null}
           {active ? <div className="modeBadge">{tool === 'text' ? ui.modeText : tool === 'crop' ? ui.modeCrop : tool === 'move' ? ui.modeMove : tool === 'restore' ? ui.modeRestore : ui.modeEraser}</div> : null}
+          {active ? (
+            <div className="canvasZoomDock" title={ui.zoomHintCtrlWheel}>
+              <button className="iconDockBtn" onClick={() => zoomBy(-0.1)} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
+              <button className="iconDockBtn zoomPct" onClick={() => { setZoom(1); setCanvasOffset({ x: 0, y: 0 }) }} title={ui.zoomReset} aria-label={ui.zoomReset}>
+                {Math.round(canvasZoom * 100)}%
+              </button>
+              <button className="iconDockBtn" onClick={() => zoomBy(0.1)} title={ui.zoomIn} aria-label={ui.zoomIn}>＋</button>
+              <input
+                className="zoomSlider"
+                type="range"
+                min={ZOOM_MIN}
+                max={ZOOM_MAX}
+                step={0.01}
+                value={canvasZoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                aria-label={ui.zoomSlider}
+                title={ui.zoomSlider}
+              />
+            </div>
+          ) : null}
           {showGuide ? (
             <div className="guideCard">
               <button className="guideCardClose" onClick={() => setShowGuide(false)} aria-label={ui.guideClose} title={ui.guideClose}>×</button>
@@ -3827,23 +3847,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           </div>
         </div>
         <div className={`rightBottomActions ${guideFocusTarget === 'export' ? 'guideFlash' : ''}`}>
-          <div className="zoomDockHorizontal">
-            <button className="btn" onClick={() => zoomBy(-0.1)} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
-            <button className="btn zoomValueBtn" onClick={() => { setZoom(1); setCanvasOffset({ x: 0, y: 0 }) }} title={ui.zoomReset} aria-label={ui.zoomReset}>{Math.round(canvasZoom * 100)}%</button>
-            <button className="btn" onClick={() => zoomBy(0.1)} title={ui.zoomIn} aria-label={ui.zoomIn}>＋</button>
-            <input
-              className="zoomSlider"
-              type="range"
-              min={ZOOM_MIN}
-              max={ZOOM_MAX}
-              step={0.01}
-              value={canvasZoom}
-              onChange={(e) => setZoom(Number(e.target.value))}
-              aria-label={ui.zoomSlider}
-              title={ui.zoomSlider}
-            />
-            <div className="zoomHint">{ui.zoomHintCtrlWheel}</div>
-          </div>
           <button
             className="btn"
             onClick={() => {

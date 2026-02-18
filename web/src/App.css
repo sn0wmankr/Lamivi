@@ -574,6 +574,33 @@
   backdrop-filter: blur(8px);
 }
 
+.canvasZoomDock {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 14;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(10, 16, 24, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.canvasZoomDock .iconDockBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.canvasZoomDock .zoomPct {
+  width: 62px;
+  font-size: 11px;
+  letter-spacing: -0.1px;
+}
+
 .modeBadge {
   position: absolute;
   top: 12px;
@@ -640,7 +667,7 @@
 }
 
 .zoomSlider {
-  width: 170px;
+  width: 140px;
 }
 
 .zoomHint {
