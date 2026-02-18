@@ -568,6 +568,7 @@ const UI = {
     exportScopeAll: '전체 파일',
     exportNoSelected: '선택한 파일이 없습니다',
     exportNow: '내보내기(저장하기)',
+    exportResetRecent: '최근값 초기화',
     cancel: '취소',
     selectedText: '선택한 텍스트',
     noSelectedText: '텍스트를 선택하면 상세 설정이 표시됩니다.',
@@ -619,12 +620,14 @@ const UI = {
     done: '완료',
     exporting: '내보내는 중…',
     exportedPng: 'PNG로 내보냈습니다',
+    exportedFile: (name: string) => `저장 완료: ${name}`,
+    exportedBatch: (success: number, fail: number) => `내보내기 완료 (성공 ${success}, 실패 ${fail})`,
     exportingPdf: 'PDF 내보내는 중…',
     noPages: '내보낼 페이지가 없습니다',
     exportedPdf: 'PDF로 내보냈습니다',
     dropHint: '이미지/PDF 파일을 놓으면 바로 불러옵니다',
     reorderHint: '파일 카드를 드래그해서 순서를 바꿀 수 있습니다.',
-    selectionHint: '파일 클릭: 편집 전환 · Shift+클릭: 다중 선택',
+    selectionHint: '파일 클릭: 편집 전환 · Shift+클릭 범위선택 · Ctrl/Cmd+클릭 토글선택',
     selectedFilesCount: (count: number) => `선택 ${count}개`,
     selectionCleared: '선택된 파일을 해제했습니다',
     guideTitle: '빠른 시작 가이드',
@@ -676,6 +679,7 @@ const UI = {
     activityKindExport: '내보내기',
     activityKindText: '텍스트',
     activityKindSystem: '시스템',
+    activitySummary: (target: number, success: number, fail: number) => `대상 ${target} · 성공 ${success} · 실패 ${fail}`,
     quickBarMove: '퀵바 이동',
     quickBarToggle: '퀵바 접기/펼치기',
     cancelTask: '작업 취소',
@@ -702,6 +706,11 @@ const UI = {
     shortcutsToggleHint: '? 키로 열기/닫기',
     shortcutsClose: '닫기',
     shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · Esc 선택해제',
+    topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
+    macroConfirmAll: (count: number) => `전체 파일 ${count}개에 적용할까요?`,
+    macroConfirmSelected: (count: number) => `선택 파일 ${count}개에 적용할까요?`,
+    macroRunningAll: '전체 파일 적용 중…',
+    macroRunningSelected: '선택 파일 적용 중…',
     restorePromptTitle: '자동 저장된 작업을 찾았습니다',
     restorePromptBody: '이전 편집 상태를 복원할까요?',
     restorePromptRestore: '복원하기',
@@ -814,6 +823,7 @@ const UI = {
     exportScopeAll: 'All files',
     exportNoSelected: 'No selected files',
     exportNow: 'Export (Save)',
+    exportResetRecent: 'Reset recent values',
     cancel: 'Cancel',
     selectedText: 'Selected text',
     noSelectedText: 'Select text to see detailed controls.',
@@ -865,12 +875,14 @@ const UI = {
     done: 'Done',
     exporting: 'Exporting…',
     exportedPng: 'Exported PNG',
+    exportedFile: (name: string) => `Saved: ${name}`,
+    exportedBatch: (success: number, fail: number) => `Export finished (success ${success}, failed ${fail})`,
     exportingPdf: 'Exporting PDF…',
     noPages: 'No pages to export',
     exportedPdf: 'Exported PDF',
     dropHint: 'Drop image/PDF files to import instantly',
     reorderHint: 'Drag file cards to reorder pages.',
-    selectionHint: 'Click file: edit target · Shift+click: multi-select',
+    selectionHint: 'Click file: edit target · Shift+click range select · Ctrl/Cmd+click toggle',
     selectedFilesCount: (count: number) => `${count} selected`,
     selectionCleared: 'Cleared selected files',
     guideTitle: 'Quick Start Guide',
@@ -922,6 +934,7 @@ const UI = {
     activityKindExport: 'Export',
     activityKindText: 'Text',
     activityKindSystem: 'System',
+    activitySummary: (target: number, success: number, fail: number) => `Target ${target} · Success ${success} · Failed ${fail}`,
     quickBarMove: 'Move quick bar',
     quickBarToggle: 'Toggle quick bar',
     cancelTask: 'Cancel task',
@@ -948,6 +961,11 @@ const UI = {
     shortcutsToggleHint: 'Toggle with ? key',
     shortcutsClose: 'Close',
     shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · Esc Clear selection',
+    topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
+    macroConfirmAll: (count: number) => `Apply to all ${count} files?`,
+    macroConfirmSelected: (count: number) => `Apply to ${count} selected files?`,
+    macroRunningAll: 'Applying to all files…',
+    macroRunningSelected: 'Applying to selected files…',
     restorePromptTitle: 'Autosaved work found',
     restorePromptBody: 'Do you want to restore your previous editing state?',
     restorePromptRestore: 'Restore',
@@ -982,7 +1000,7 @@ function App() {
     if (code === 'ERR_API_BAD_JSON') return `${ui.errApiBadJsonWithSnippet(detail)} ${ui.errApiActionHint}`
     if (code === 'ERR_INPAINT_HTTP') {
       const [status = '', ...tail] = rest
-      return ui.errInpaintHttp(status, tail.join(':').trim())
+      return `${ui.errInpaintHttp(status, tail.join(':').trim())} ${ui.errApiActionHint}`
     }
     return message
   }
@@ -1056,6 +1074,7 @@ function App() {
   const [dragAssetId, setDragAssetId] = useState<string | null>(null)
   const [dragOverAssetId, setDragOverAssetId] = useState<string | null>(null)
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
+  const [flashAssetId, setFlashAssetId] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-show-guide') !== '0'
@@ -1097,6 +1116,8 @@ function App() {
   })
   const [tooltipsMuted, setTooltipsMuted] = useState(false)
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
+  const [macroRunningMode, setMacroRunningMode] = useState<'all' | 'selected' | null>(null)
+  const [macroRunningTool, setMacroRunningTool] = useState<'restore' | 'eraser' | null>(null)
   const [tooltipDensity, setTooltipDensity] = useState<TooltipDensity>(() => {
     try {
       return window.localStorage.getItem('lamivi-tooltip-density') === 'simple' ? 'simple' : 'detailed'
@@ -1202,6 +1223,11 @@ function App() {
     setActiveId(assetId)
     if (e.shiftKey) {
       addSelectedAssetRange(anchorId, assetId)
+    } else if (e.metaKey || e.ctrlKey) {
+      setSelectedAssetIds((prev) => {
+        if (prev.includes(assetId)) return prev.filter((id) => id !== assetId)
+        return [...prev, assetId]
+      })
     }
     lastSelectionAnchorIdRef.current = assetId
   }
@@ -1263,6 +1289,12 @@ function App() {
   useEffect(() => {
     setSelectedAssetIds((prev) => prev.filter((id) => assets.some((a) => a.id === id)))
   }, [assets])
+
+  useEffect(() => {
+    if (!flashAssetId) return
+    const timer = window.setTimeout(() => setFlashAssetId(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [flashAssetId])
 
   useEffect(() => {
     try {
@@ -1587,7 +1619,7 @@ function App() {
       const key = e.key.toLowerCase()
       const meta = e.metaKey || e.ctrlKey
 
-      if (key === '?') {
+      if (key === '?' || key === 'f1') {
         e.preventDefault()
         setShowShortcutsHelp((prev) => !prev)
         return
@@ -2331,14 +2363,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
   async function runInpaintForAsset(assetId: string, strokes: MaskStroke[]) {
     const target = assetsRef.current.find((asset) => asset.id === assetId)
-    if (!target) return
+    if (!target) return false
     if (strokes.length === 0) {
-      return
+      return false
     }
 
     const bounds = getInpaintBounds(strokes, target.width, target.height)
     if (!bounds) {
-      return
+      return false
     }
     try {
       const translated = strokes.map((stroke) => ({
@@ -2356,16 +2388,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       const resultBlob = await inpaintViaApi({ image: imageBlob, mask: maskBlob })
       const resultUrl = await mergeInpaintResult(target.baseDataUrl, bounds, resultBlob)
       updateAssetByIdWithHistory(target.id, 'AI restore', (a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [] }))
+      return true
     } catch (e) {
       setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
+      return false
     }
   }
 
   async function applyLocalEraserForAsset(assetId: string, strokes: MaskStroke[]) {
     const target = assetsRef.current.find((asset) => asset.id === assetId)
-    if (!target || strokes.length === 0) return
+    if (!target || strokes.length === 0) return false
     const bounds = getInpaintBounds(strokes, target.width, target.height)
-    if (!bounds) return
+    if (!bounds) return false
 
     try {
       const baseImage = await loadHtmlImage(target.baseDataUrl)
@@ -2395,8 +2429,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
       const resultUrl = canvas.toDataURL('image/png')
       updateAssetByIdWithHistory(target.id, 'AI eraser', (a) => ({ ...a, baseDataUrl: resultUrl, maskStrokes: [] }))
+      return true
     } catch (e) {
       setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
+      return false
     }
   }
 
@@ -2456,6 +2492,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     const repeat = clamp(Math.round(macroRepeatCount), 1, 10)
     const total = targets.length * repeat
     let doneCount = 0
+    let successCount = 0
+    let failCount = 0
     setBusy(ui.inpainting)
     setStatus(ui.inpainting)
     runCancelableStart()
@@ -2466,12 +2504,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         for (const asset of targets) {
           if (cancelRequestedRef.current) break
           const mapped = denormalizeStrokes(template, asset.width, asset.height)
-          await runInpaintForAsset(asset.id, mapped)
+          const ok = await runInpaintForAsset(asset.id, mapped)
+          if (ok) successCount += 1
+          else failCount += 1
           doneCount += 1
           setProgressState({ label: ui.inpainting, value: doneCount, total, indeterminate: false })
         }
       }
-      setStatus(ui.done)
+      setStatus(`${ui.activitySummary(total, successCount, failCount)} · ${ui.done}`)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2492,6 +2532,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     const repeat = clamp(Math.round(macroRepeatCount), 1, 10)
     const total = targets.length * repeat
     let doneCount = 0
+    let successCount = 0
+    let failCount = 0
     setBusy(ui.inpainting)
     setStatus(ui.inpainting)
     runCancelableStart()
@@ -2502,12 +2544,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         for (const asset of targets) {
           if (cancelRequestedRef.current) break
           const mapped = denormalizeStrokes(template, asset.width, asset.height)
-          await applyLocalEraserForAsset(asset.id, mapped)
+          const ok = await applyLocalEraserForAsset(asset.id, mapped)
+          if (ok) successCount += 1
+          else failCount += 1
           doneCount += 1
           setProgressState({ label: ui.inpainting, value: doneCount, total, indeterminate: false })
         }
       }
-      setStatus(ui.done)
+      setStatus(`${ui.activitySummary(total, successCount, failCount)} · ${ui.done}`)
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2520,14 +2564,19 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
+      let lastName = ''
+      let successCount = 0
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio)
         const blob = await dataUrlToBlob(dataUrl)
-        downloadBlob(blob, buildLamiviFilename(target.name, 'png'))
+        const fileName = buildLamiviFilename(target.name, 'png')
+        downloadBlob(blob, fileName)
+        lastName = fileName
+        successCount += 1
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
-      setStatus(ui.exportedPng)
+      setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2539,14 +2588,19 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
+      let lastName = ''
+      let successCount = 0
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', quality)
         const blob = await dataUrlToBlob(dataUrl)
-        downloadBlob(blob, buildLamiviFilename(target.name, 'jpg'))
+        const fileName = buildLamiviFilename(target.name, 'jpg')
+        downloadBlob(blob, fileName)
+        lastName = fileName
+        successCount += 1
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
-      setStatus(ui.done)
+      setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2558,14 +2612,19 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
+      let lastName = ''
+      let successCount = 0
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', quality)
         const blob = await dataUrlToBlob(dataUrl)
-        downloadBlob(blob, buildLamiviFilename(target.name, 'webp'))
+        const fileName = buildLamiviFilename(target.name, 'webp')
+        downloadBlob(blob, fileName)
+        lastName = fileName
+        successCount += 1
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
       }
-      setStatus(ui.done)
+      setStatus(successCount === 1 ? ui.exportedFile(lastName) : ui.exportedBatch(successCount, 0))
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2612,7 +2671,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         ? buildLamiviFilename(first.name, 'pdf')
         : buildLamiviBundleFilename(first.name, `_${scope}`, 'pdf')
       downloadBlob(blob, filename)
-      setStatus(ui.exportedPdf)
+      setStatus(ui.exportedFile(filename))
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2676,7 +2735,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         ? buildLamiviFilename(first.name, 'pptx')
         : buildLamiviBundleFilename(first.name, `_${scope}`, 'pptx')
       downloadBlob(out, filename)
-      setStatus(ui.done)
+      setStatus(ui.exportedFile(filename))
     } finally {
       setBusy(null)
       setProgressState(null)
@@ -2721,6 +2780,30 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (kind === 'webp') return await exportWebpSet(targets, ratio, imageQuality)
     if (kind === 'pdf') return await exportPdfSet(targets, ratio, scope)
     return await exportPptxSet(targets, ratio, scope)
+  }
+
+  async function runMacroWithConfirm(toolKind: 'restore' | 'eraser', mode: 'all' | 'selected') {
+    if (busy) return
+    const targets = mode === 'all' ? [...assetsRef.current] : [...selectedAssets]
+    if (targets.length === 0) {
+      setStatus(ui.macroNoSelectedFiles)
+      return
+    }
+    const message = mode === 'all' ? ui.macroConfirmAll(targets.length) : ui.macroConfirmSelected(targets.length)
+    if (!window.confirm(message)) return
+
+    setMacroRunningTool(toolKind)
+    setMacroRunningMode(mode)
+    try {
+      if (toolKind === 'restore') {
+        await runMacroRepeatRestore(targets)
+      } else {
+        await runMacroRepeatEraser(targets)
+      }
+    } finally {
+      setMacroRunningMode(null)
+      setMacroRunningTool(null)
+    }
   }
 
   function cancelInlineEdit() {
@@ -2782,12 +2865,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const normalizedRestoreDevice = aiDevice.toLowerCase()
   const restoreDeviceLabel = normalizedRestoreDevice.includes('cuda') || normalizedRestoreDevice.includes('gpu') ? 'GPU' : normalizedRestoreDevice.includes('cpu') ? 'CPU' : 'AUTO'
   const requestedDeviceLabel = aiRequestedDevice === 'cuda' ? 'GPU' : aiRequestedDevice === 'cpu' ? 'CPU' : 'AUTO'
+  const releaseTrack = APP_VERSION.toLowerCase().includes('dev') ? 'dev' : 'latest'
   const aiStatusText = aiReady ? ui.aiReady : ui.aiInit
   const gpuSelectable = cudaAvailable !== false
   const selectedEngine = aiRequestedDevice === 'cuda' ? 'GPU' : 'CPU'
   const selectedAvailable = selectedEngine === 'CPU' ? true : gpuSelectable
   const canUndo = !busy && assetListHistoryPast.length > 0
   const canRedo = !busy && assetListHistoryFuture.length > 0
+  const hasSelectedAssets = selectedAssetIds.length > 0
   const activeCropRect = active && cropRect ? normalizeCropRect(cropRect, active.width, active.height) : null
   const brushSliderValue = brushToSlider(brushSize)
   const filteredToastLog = useMemo(() => {
@@ -2804,6 +2889,31 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }, [selectedText, tool, editingTextId, fit, wrapSize, quickBarOffset])
   const tinyViewport = wrapSize.w <= 360
+  const shortcutRows = locale === 'ko'
+    ? [
+        ['B', '복원 모드'],
+        ['E', '지우개 모드'],
+        ['T', '텍스트 모드'],
+        ['C', '자르기 모드'],
+        ['M', '이동 모드'],
+        ['Ctrl+휠', '확대/축소'],
+        ['Ctrl/Cmd+Z', '실행취소'],
+        ['Shift+Ctrl/Cmd+Z', '다시실행'],
+        ['Shift+클릭', '범위 다중선택'],
+        ['Esc', '선택 해제'],
+      ]
+    : [
+        ['B', 'Restore mode'],
+        ['E', 'Eraser mode'],
+        ['T', 'Text mode'],
+        ['C', 'Crop mode'],
+        ['M', 'Move mode'],
+        ['Ctrl+wheel', 'Zoom in/out'],
+        ['Ctrl/Cmd+Z', 'Undo'],
+        ['Shift+Ctrl/Cmd+Z', 'Redo'],
+        ['Shift+click', 'Range multi-select'],
+        ['Esc', 'Clear selection'],
+      ]
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -2914,6 +3024,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (!item.assetId) return
     if (!assetsRef.current.some((asset) => asset.id === item.assetId)) return
     setActiveId(item.assetId)
+    setFlashAssetId(item.assetId)
     if (!item.snapshot) return
     const parsed = parseSnapshot(item.snapshot)
     if (!parsed) return
@@ -3016,6 +3127,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       <div className="topbar">
         <div className="brand">
           <h1>Lamivi</h1>
+          <span className="brandMeta">{ui.topVersionTag(APP_VERSION, releaseTrack)}</span>
         </div>
 
         <div className="rightControls">
@@ -3224,7 +3336,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               {assets.map((a) => (
                 <div
                   key={a.id}
-                  className={`asset ${a.id === activeId ? 'active' : ''} ${selectedAssetIds.includes(a.id) ? 'selected' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
+                  className={`asset ${a.id === activeId ? 'active' : ''} ${selectedAssetIds.includes(a.id) ? 'selected' : ''} ${a.id === flashAssetId ? 'flash' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
                   onClick={(e) => onAssetCardClick(e, a.id)}
                   draggable
                   onDragStart={(e) => onAssetDragStart(e, a.id)}
@@ -3239,7 +3351,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   <img className="thumb" src={a.baseDataUrl} alt={a.name} loading="lazy" decoding="async" />
                   <div className="assetMeta">
                     <div className="assetTopRow">
-                      <div className="assetName">{a.name}</div>
+                      <div className="assetName">
+                        {a.name}
+                        {selectedAssetIds.includes(a.id) ? (
+                          <span className="assetOrderBadge">{selectedAssetIds.indexOf(a.id) + 1}</span>
+                        ) : null}
+                      </div>
                       <button
                         className="assetRemoveBtn"
                         onClick={(e) => {
@@ -3770,8 +3887,20 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         onChange={(e) => setMacroRepeatCount(clamp(Number(e.target.value), 1, 10))}
                       />
                     </div>
-                    <button className="btn primary macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatRestore([...assetsRef.current])}>{ui.macroRunAll}</button>
-                    <button className="btn macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatRestore([...selectedAssets])}>{ui.macroRunSelected}</button>
+                    <button
+                      className="btn primary macroRunBtn"
+                      disabled={!!busy}
+                      onClick={() => void runMacroWithConfirm('restore', 'all')}
+                    >
+                      {macroRunningTool === 'restore' && macroRunningMode === 'all' ? ui.macroRunningAll : ui.macroRunAll}
+                    </button>
+                    <button
+                      className="btn macroRunBtn"
+                      disabled={!!busy || !hasSelectedAssets}
+                      onClick={() => void runMacroWithConfirm('restore', 'selected')}
+                    >
+                      {macroRunningTool === 'restore' && macroRunningMode === 'selected' ? ui.macroRunningSelected : ui.macroRunSelected}
+                    </button>
                   </div>
                   <div className="hint">{ui.macroHint} {ui.macroSelectHint}</div>
                 </>
@@ -3812,8 +3941,20 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         onChange={(e) => setMacroRepeatCount(clamp(Number(e.target.value), 1, 10))}
                       />
                     </div>
-                    <button className="btn primary macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatEraser([...assetsRef.current])}>{ui.macroRunAll}</button>
-                    <button className="btn macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatEraser([...selectedAssets])}>{ui.macroRunSelected}</button>
+                    <button
+                      className="btn primary macroRunBtn"
+                      disabled={!!busy}
+                      onClick={() => void runMacroWithConfirm('eraser', 'all')}
+                    >
+                      {macroRunningTool === 'eraser' && macroRunningMode === 'all' ? ui.macroRunningAll : ui.macroRunAll}
+                    </button>
+                    <button
+                      className="btn macroRunBtn"
+                      disabled={!!busy || !hasSelectedAssets}
+                      onClick={() => void runMacroWithConfirm('eraser', 'selected')}
+                    >
+                      {macroRunningTool === 'eraser' && macroRunningMode === 'selected' ? ui.macroRunningSelected : ui.macroRunSelected}
+                    </button>
                   </div>
                   <div className="hint">{ui.macroHint} {ui.macroSelectHint}</div>
                 </>
@@ -4066,6 +4207,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           <button
             className="btn"
             onClick={() => {
+              if (!hasSelectedAssets && pendingExportScope === 'selected') {
+                setPendingExportScope('current')
+              }
               setExportDialogOpen(true)
             }}
             disabled={assets.length === 0 || !!busy}
@@ -4116,7 +4260,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           <div className="dialog shortcutsDialog" onClick={(e) => e.stopPropagation()}>
             <div className="dialogTitle">{ui.shortcutsHelp}</div>
             <div className="dialogHint">{ui.shortcutsToggleHint}</div>
-            <div className="shortcutsBody">{ui.shortcutsList}</div>
+            <div className="shortcutsTable" role="table" aria-label={ui.shortcutsHelp}>
+              {shortcutRows.map(([keyLabel, desc]) => (
+                <div className="shortcutsRow" role="row" key={keyLabel}>
+                  <div className="shortcutsKey" role="cell">{keyLabel}</div>
+                  <div className="shortcutsDesc" role="cell">{desc}</div>
+                </div>
+              ))}
+            </div>
             <div className="dialogActions">
               <button className="btn" onClick={() => setShowShortcutsHelp(false)}>{ui.shortcutsClose}</button>
             </div>
@@ -4142,7 +4293,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="label">{ui.exportScope}</div>
               <select className="select" value={pendingExportScope} onChange={(e) => setPendingExportScope(e.target.value as ExportScope)}>
                 <option value="current">{ui.exportScopeCurrent}</option>
-                <option value="selected">{ui.exportScopeSelected}</option>
+                <option value="selected" disabled={!hasSelectedAssets}>{ui.exportScopeSelected}</option>
                 <option value="all">{ui.exportScopeAll}</option>
               </select>
             </div>
@@ -4181,6 +4332,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               </div>
             ) : null}
             <div className="dialogActions">
+              <button
+                className="btn"
+                onClick={() => {
+                  setPendingExportFormat('png')
+                  setPendingExportRatio(2)
+                  setPendingExportScope('current')
+                  setPendingExportQuality(92)
+                }}
+              >
+                {ui.exportResetRecent}
+              </button>
               <button className="btn" onClick={() => setExportDialogOpen(false)}>
                 {ui.cancel}
               </button>

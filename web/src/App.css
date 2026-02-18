@@ -416,6 +416,8 @@
   border: 1px solid rgba(255, 255, 255, 0.10);
   background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: 84px;
 }
 
 .asset:hover {
@@ -429,6 +431,15 @@
 
 .asset.selected {
   box-shadow: inset 0 0 0 1px rgba(138, 247, 219, 0.45);
+}
+
+.asset.flash {
+  animation: assetFlash 1.1s ease;
+}
+
+@keyframes assetFlash {
+  0% { box-shadow: inset 0 0 0 1px rgba(100, 210, 255, 0.95), 0 0 0 2px rgba(100, 210, 255, 0.5); }
+  100% { box-shadow: inset 0 0 0 1px rgba(138, 247, 219, 0.45); }
 }
 
 .asset.dragging {
@@ -474,6 +485,20 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.assetOrderBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #07231a;
+  background: #8af7db;
 }
 
 .assetRemoveBtn {
@@ -709,15 +734,40 @@
   max-width: 560px;
 }
 
-.shortcutsBody {
+.shortcutsTable {
   margin-top: 8px;
-  padding: 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.shortcutsRow {
+  display: grid;
+  grid-template-columns: 145px 1fr;
+}
+
+.shortcutsRow + .shortcutsRow {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.shortcutsKey {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #d2ecff;
+  background: rgba(100, 210, 255, 0.12);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.shortcutsDesc {
+  padding: 8px 10px;
   font-size: 13px;
-  line-height: 1.45;
   color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.brandMeta {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .iconDockBtn::after {
