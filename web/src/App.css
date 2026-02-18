@@ -508,6 +508,18 @@
   color: var(--muted);
 }
 
+.selectionCountBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #bff5e7;
+  background: rgba(46, 163, 130, 0.24);
+  border: 1px solid rgba(80, 213, 173, 0.4);
+}
+
 .canvasWrap {
   position: relative;
   min-height: 0;
@@ -674,6 +686,38 @@
 .zoomHint {
   font-size: 11px;
   color: var(--muted);
+}
+
+.deviceDetailText {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+.qualityRow {
+  display: grid;
+  grid-template-columns: 1fr 74px;
+  gap: 8px;
+  align-items: center;
+}
+
+.qualityNumber {
+  text-align: center;
+}
+
+.shortcutsDialog {
+  max-width: 560px;
+}
+
+.shortcutsBody {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 .iconDockBtn::after {

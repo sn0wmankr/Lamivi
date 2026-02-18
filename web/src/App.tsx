@@ -561,6 +561,7 @@ const UI = {
     exportDialogTitle: '내보내기 설정',
     exportDialogDesc: '형식과 품질을 선택하세요.',
     exportFormat: '형식',
+    exportImageQuality: '이미지 품질',
     exportScope: '저장 범위',
     exportScopeCurrent: '현재 파일',
     exportScopeSelected: '선택한 파일',
@@ -624,6 +625,8 @@ const UI = {
     dropHint: '이미지/PDF 파일을 놓으면 바로 불러옵니다',
     reorderHint: '파일 카드를 드래그해서 순서를 바꿀 수 있습니다.',
     selectionHint: '파일 클릭: 편집 전환 · Shift+클릭: 다중 선택',
+    selectedFilesCount: (count: number) => `선택 ${count}개`,
+    selectionCleared: '선택된 파일을 해제했습니다',
     guideTitle: '빠른 시작 가이드',
     guideStepImport: '왼쪽 파일 패널에서 이미지를 불러오거나 드래그하세요.',
     guideStepTool: '왼쪽 도구에서 AI 복원/AI 지우개/텍스트/잘라내기/이동을 선택하세요.',
@@ -693,6 +696,12 @@ const UI = {
     errInpaintNonImage: (snippet: string) => `AI 복원 API 응답이 이미지가 아닙니다. (/api 경로/프록시 확인) ${snippet}`,
     errApiBadJson: 'AI API 응답 형식 오류 (/api 경로/프록시 확인)',
     errApiBadJsonWithSnippet: (snippet: string) => `AI API 응답 형식이 올바르지 않습니다. (/api 경로/프록시 확인) ${snippet}`,
+    errApiActionHint: '백엔드 컨테이너와 /api 프록시 연결 상태를 확인하세요.',
+    aiRuntimeDetail: (runtime: string, requested: string, selectedCount: number) => `실행: ${runtime} · 요청: ${requested} · 선택: ${selectedCount}개`,
+    shortcutsHelp: '단축키 도움말',
+    shortcutsToggleHint: '? 키로 열기/닫기',
+    shortcutsClose: '닫기',
+    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · Esc 선택해제',
     restorePromptTitle: '자동 저장된 작업을 찾았습니다',
     restorePromptBody: '이전 편집 상태를 복원할까요?',
     restorePromptRestore: '복원하기',
@@ -798,6 +807,7 @@ const UI = {
     exportDialogTitle: 'Export settings',
     exportDialogDesc: 'Choose format and quality.',
     exportFormat: 'Format',
+    exportImageQuality: 'Image quality',
     exportScope: 'Save scope',
     exportScopeCurrent: 'Current file',
     exportScopeSelected: 'Selected files',
@@ -861,6 +871,8 @@ const UI = {
     dropHint: 'Drop image/PDF files to import instantly',
     reorderHint: 'Drag file cards to reorder pages.',
     selectionHint: 'Click file: edit target · Shift+click: multi-select',
+    selectedFilesCount: (count: number) => `${count} selected`,
+    selectionCleared: 'Cleared selected files',
     guideTitle: 'Quick Start Guide',
     guideStepImport: 'Import files from the left panel or drag and drop.',
     guideStepTool: 'Pick AI Restore / AI Eraser / Text / Crop / Move from the left tool dock.',
@@ -930,6 +942,12 @@ const UI = {
     errInpaintNonImage: (snippet: string) => `AI restore API response is not an image. (check /api path/proxy) ${snippet}`,
     errApiBadJson: 'AI API response format error (check /api path/proxy)',
     errApiBadJsonWithSnippet: (snippet: string) => `AI API response format is invalid. (check /api path/proxy) ${snippet}`,
+    errApiActionHint: 'Check backend container status and /api proxy routing.',
+    aiRuntimeDetail: (runtime: string, requested: string, selectedCount: number) => `Runtime: ${runtime} · Requested: ${requested} · Selected: ${selectedCount}`,
+    shortcutsHelp: 'Shortcuts',
+    shortcutsToggleHint: 'Toggle with ? key',
+    shortcutsClose: 'Close',
+    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · Esc Clear selection',
     restorePromptTitle: 'Autosaved work found',
     restorePromptBody: 'Do you want to restore your previous editing state?',
     restorePromptRestore: 'Restore',
@@ -960,8 +978,8 @@ function App() {
     if (code === 'ERR_IMPORT_READ_FILE') return ui.errImportReadFile
     if (code === 'ERR_IMPORT_IMAGE_LOAD') return ui.errImageLoadFailed
     if (code === 'ERR_CANVAS_INIT_FAILED') return ui.errCanvasInitFailed
-    if (code === 'ERR_INPAINT_NON_IMAGE') return ui.errInpaintNonImage(detail)
-    if (code === 'ERR_API_BAD_JSON') return ui.errApiBadJsonWithSnippet(detail)
+    if (code === 'ERR_INPAINT_NON_IMAGE') return `${ui.errInpaintNonImage(detail)} ${ui.errApiActionHint}`
+    if (code === 'ERR_API_BAD_JSON') return `${ui.errApiBadJsonWithSnippet(detail)} ${ui.errApiActionHint}`
     if (code === 'ERR_INPAINT_HTTP') {
       const [status = '', ...tail] = rest
       return ui.errInpaintHttp(status, tail.join(':').trim())
@@ -986,7 +1004,6 @@ function App() {
     }
     return 150
   })
-  const [exportPixelRatio, setExportPixelRatio] = useState(2)
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
   const selectedText = useMemo(
     () => active?.texts.find((t) => t.id === selectedTextId) ?? null,
@@ -1003,9 +1020,38 @@ function App() {
   const [cudaAvailable, setCudaAvailable] = useState<boolean | null>(null)
   const [switchingDevice, setSwitchingDevice] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
-  const [pendingExportFormat, setPendingExportFormat] = useState<ExportKind>('png')
-  const [pendingExportRatio, setPendingExportRatio] = useState(2)
-  const [pendingExportScope, setPendingExportScope] = useState<ExportScope>('current')
+  const [pendingExportFormat, setPendingExportFormat] = useState<ExportKind>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-export-format')
+      return saved === 'png' || saved === 'jpg' || saved === 'webp' || saved === 'pdf' || saved === 'pptx' ? saved : 'png'
+    } catch {
+      return 'png'
+    }
+  })
+  const [pendingExportRatio, setPendingExportRatio] = useState(() => {
+    try {
+      const saved = Number(window.localStorage.getItem('lamivi-export-ratio'))
+      return Number.isFinite(saved) ? normalizeExportRatio(saved) : 2
+    } catch {
+      return 2
+    }
+  })
+  const [pendingExportScope, setPendingExportScope] = useState<ExportScope>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-export-scope')
+      return saved === 'current' || saved === 'selected' || saved === 'all' ? saved : 'current'
+    } catch {
+      return 'current'
+    }
+  })
+  const [pendingExportQuality, setPendingExportQuality] = useState<number>(() => {
+    try {
+      const saved = Number(window.localStorage.getItem('lamivi-export-quality'))
+      return Number.isFinite(saved) ? clamp(Math.round(saved), 50, 100) : 92
+    } catch {
+      return 92
+    }
+  })
   const [macroRepeatCount, setMacroRepeatCount] = useState(1)
   const [dragAssetId, setDragAssetId] = useState<string | null>(null)
   const [dragOverAssetId, setDragOverAssetId] = useState<string | null>(null)
@@ -1050,6 +1096,7 @@ function App() {
     }
   })
   const [tooltipsMuted, setTooltipsMuted] = useState(false)
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
   const [tooltipDensity, setTooltipDensity] = useState<TooltipDensity>(() => {
     try {
       return window.localStorage.getItem('lamivi-tooltip-density') === 'simple' ? 'simple' : 'detailed'
@@ -1258,6 +1305,17 @@ function App() {
   }, [showShortcutTips])
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-export-format', pendingExportFormat)
+      window.localStorage.setItem('lamivi-export-ratio', String(pendingExportRatio))
+      window.localStorage.setItem('lamivi-export-scope', pendingExportScope)
+      window.localStorage.setItem('lamivi-export-quality', String(clamp(Math.round(pendingExportQuality), 50, 100)))
+    } catch {
+      // ignore
+    }
+  }, [pendingExportFormat, pendingExportRatio, pendingExportScope, pendingExportQuality])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       setTooltipsMuted(true)
@@ -1458,7 +1516,7 @@ function App() {
         if (!contentType.includes('application/json')) {
           if (!cancelled) {
             setAiReady(false)
-            setAiError(ui.errApiBadJson)
+            setAiError(`${ui.errApiBadJson}. ${ui.errApiActionHint}`)
           }
           return
         }
@@ -1529,6 +1587,19 @@ function App() {
       const key = e.key.toLowerCase()
       const meta = e.metaKey || e.ctrlKey
 
+      if (key === '?') {
+        e.preventDefault()
+        setShowShortcutsHelp((prev) => !prev)
+        return
+      }
+
+      if (key === 'escape' && selectedAssetIds.length > 0) {
+        e.preventDefault()
+        setSelectedAssetIds([])
+        setStatus(ui.selectionCleared)
+        return
+      }
+
       if (meta && key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undoRestore()
@@ -1575,7 +1646,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedText, active])
+  }, [selectedText, active, selectedAssetIds.length, ui.selectionCleared])
 
   useEffect(() => {
     return () => {
@@ -2463,14 +2534,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportJpgSet(targets: PageAsset[], pixelRatio: number) {
+  async function exportJpgSet(targets: PageAsset[], pixelRatio: number, quality: number) {
     if (targets.length === 0) return
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
-        const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', 0.92)
+        const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', quality)
         const blob = await dataUrlToBlob(dataUrl)
         downloadBlob(blob, buildLamiviFilename(target.name, 'jpg'))
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
@@ -2482,14 +2553,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function exportWebpSet(targets: PageAsset[], pixelRatio: number) {
+  async function exportWebpSet(targets: PageAsset[], pixelRatio: number, quality: number) {
     if (targets.length === 0) return
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
-        const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', 0.92)
+        const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', quality)
         const blob = await dataUrlToBlob(dataUrl)
         downloadBlob(blob, buildLamiviFilename(target.name, 'webp'))
         setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
@@ -2642,12 +2713,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       setStatus(ui.exportNoSelected)
       return
     }
-    setExportPixelRatio(ratio)
     const kind = pendingExportFormat
+    const imageQuality = clamp(pendingExportQuality, 50, 100) / 100
     setExportDialogOpen(false)
     if (kind === 'png') return await exportPngSet(targets, ratio)
-    if (kind === 'jpg') return await exportJpgSet(targets, ratio)
-    if (kind === 'webp') return await exportWebpSet(targets, ratio)
+    if (kind === 'jpg') return await exportJpgSet(targets, ratio, imageQuality)
+    if (kind === 'webp') return await exportWebpSet(targets, ratio, imageQuality)
     if (kind === 'pdf') return await exportPdfSet(targets, ratio, scope)
     return await exportPptxSet(targets, ratio, scope)
   }
@@ -2710,6 +2781,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         : 'default'
   const normalizedRestoreDevice = aiDevice.toLowerCase()
   const restoreDeviceLabel = normalizedRestoreDevice.includes('cuda') || normalizedRestoreDevice.includes('gpu') ? 'GPU' : normalizedRestoreDevice.includes('cpu') ? 'CPU' : 'AUTO'
+  const requestedDeviceLabel = aiRequestedDevice === 'cuda' ? 'GPU' : aiRequestedDevice === 'cpu' ? 'CPU' : 'AUTO'
   const aiStatusText = aiReady ? ui.aiReady : ui.aiInit
   const gpuSelectable = cudaAvailable !== false
   const selectedEngine = aiRequestedDevice === 'cuda' ? 'GPU' : 'CPU'
@@ -2954,10 +3026,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <span className={`deviceAvailability ${aiReady ? 'ok' : 'bad'}`}>
               {aiStatusText}
             </span>
+            <span className="deviceDetailText">{ui.aiRuntimeDetail(restoreDeviceLabel, requestedDeviceLabel, selectedAssetIds.length)}</span>
           </div>
 
           <button className="activityBtn" onClick={() => setShowActivityLog((prev) => !prev)}>
             {showActivityLog ? ui.activityHide : ui.activityShow}
+          </button>
+
+          <button className="activityBtn" onClick={() => setShowShortcutsHelp((prev) => !prev)} title={ui.shortcutsToggleHint}>
+            {ui.shortcutsHelp}
           </button>
 
           <div className="settingsWrap">
@@ -3159,7 +3236,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                     setDragOverAssetId(null)
                   }}
                 >
-                  <img className="thumb" src={a.baseDataUrl} alt={a.name} />
+                  <img className="thumb" src={a.baseDataUrl} alt={a.name} loading="lazy" decoding="async" />
                   <div className="assetMeta">
                     <div className="assetTopRow">
                       <div className="assetName">{a.name}</div>
@@ -3203,7 +3280,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button className="btn danger" onClick={clearAllAssets} disabled={assets.length === 0 || !!busy}>
               {ui.clearAllAssets}
             </button>
-            <div className="footerHint">{ui.reorderHint} · {ui.selectionHint}</div>
+            <div className="footerHint">
+              {ui.reorderHint} · {ui.selectionHint}
+              {selectedAssetIds.length > 0 ? <span className="selectionCountBadge">{ui.selectedFilesCount(selectedAssetIds.length)}</span> : null}
+            </div>
           </div>
         </div>
 
@@ -3986,9 +4066,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           <button
             className="btn"
             onClick={() => {
-              setPendingExportRatio(exportPixelRatio)
-              setPendingExportFormat('png')
-              setPendingExportScope('current')
               setExportDialogOpen(true)
             }}
             disabled={assets.length === 0 || !!busy}
@@ -4034,6 +4111,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           <div className="dropCard">{ui.dropHint}</div>
         </div>
       ) : null}
+      {showShortcutsHelp ? (
+        <div className="dialogBackdrop" onClick={() => setShowShortcutsHelp(false)}>
+          <div className="dialog shortcutsDialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dialogTitle">{ui.shortcutsHelp}</div>
+            <div className="dialogHint">{ui.shortcutsToggleHint}</div>
+            <div className="shortcutsBody">{ui.shortcutsList}</div>
+            <div className="dialogActions">
+              <button className="btn" onClick={() => setShowShortcutsHelp(false)}>{ui.shortcutsClose}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {exportDialogOpen ? (
         <div className="dialogBackdrop" onClick={() => setExportDialogOpen(false)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
@@ -4067,6 +4156,30 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <option value="4">4x</option>
               <option value="8">8x</option>
             </select>
+            {pendingExportFormat === 'jpg' || pendingExportFormat === 'webp' ? (
+              <div>
+                <div className="label">{ui.exportImageQuality}</div>
+                <div className="qualityRow">
+                  <input
+                    className="input smoothRange"
+                    type="range"
+                    min={50}
+                    max={100}
+                    step={1}
+                    value={pendingExportQuality}
+                    onChange={(e) => setPendingExportQuality(clamp(Number(e.target.value), 50, 100))}
+                  />
+                  <input
+                    className="input qualityNumber"
+                    type="number"
+                    min={50}
+                    max={100}
+                    value={pendingExportQuality}
+                    onChange={(e) => setPendingExportQuality(clamp(Number(e.target.value), 50, 100))}
+                  />
+                </div>
+              </div>
+            ) : null}
             <div className="dialogActions">
               <button className="btn" onClick={() => setExportDialogOpen(false)}>
                 {ui.cancel}
