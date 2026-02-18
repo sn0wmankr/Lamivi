@@ -3,7 +3,6 @@ import Konva from 'konva'
 import { Circle, Image as KonvaImage, Layer, Line, Stage, Text, Group, Rect, Transformer } from 'react-konva'
 import { jsPDF } from 'jspdf'
 import PptxGenJS from 'pptxgenjs'
-import JSZip from 'jszip'
 
 import './App.css'
 import type { LayerGroup, MaskStroke, PageAsset, TextItem, Tool } from './lib/types'
@@ -119,28 +118,6 @@ function buildLamiviBundleFilename(name: string, suffix: string, ext: string) {
   const { base } = splitFilename(name)
   const safeBase = base.replace(/[\\/:*?"<>|]+/g, '_').replaceAll('#', '_')
   return `${safeBase}_lamivi${suffix}.${ext}`
-}
-
-function FaCircleIcon() {
-  return (
-    <svg viewBox="0 0 512 512" width="16" height="16" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM256 64a192 192 0 1 1 0 384 192 192 0 1 1 0-384z"
-      />
-    </svg>
-  )
-}
-
-function FaCircleCheckIcon() {
-  return (
-    <svg viewBox="0 0 512 512" width="16" height="16" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209 241 337c-9 9-24 9-33 0l-65-65c-9-9-9-24 0-33s24-9 33 0l49 49 111-111c9-9 24-9 33 0s9 24 0 33z"
-      />
-    </svg>
-  )
 }
 
 function normalizeCropRect(rect: CropRect, maxW: number, maxH: number): CropRect {
@@ -613,9 +590,13 @@ const UI = {
     cropHint: '드래그로 영역을 지정하거나 수치를 입력하세요.',
     cropDone: '잘라내기를 적용했습니다',
     macroCount: '반복 횟수',
-    macroRun: '최근 AI 복원 영역 전체 적용',
-    macroHint: '최근 브러시 영역을 모든 파일의 같은 위치에 반복 적용합니다.',
-    macroNoStroke: '반복할 브러시 기록이 없습니다',
+    macroRunAll: '전체 파일 적용',
+    macroRunSelected: '선택 파일 적용',
+    macroHint: '최근 브러시 영역을 같은 위치에 반복 적용합니다.',
+    macroSelectHint: 'Shift+클릭으로 여러 파일을 선택할 수 있습니다.',
+    macroNoStrokeRestore: '반복할 AI 복원 브러시 기록이 없습니다',
+    macroNoStrokeEraser: '반복할 AI 지우개 브러시 기록이 없습니다',
+    macroNoSelectedFiles: '선택된 파일이 없습니다',
     font: '글꼴',
     size: '크기',
     color: '색상',
@@ -640,6 +621,7 @@ const UI = {
     exportedPdf: 'PDF로 내보냈습니다',
     dropHint: '이미지/PDF 파일을 놓으면 바로 불러옵니다',
     reorderHint: '파일 카드를 드래그해서 순서를 바꿀 수 있습니다.',
+    selectionHint: '파일 클릭: 편집 전환 · Shift+클릭: 다중 선택',
     guideTitle: '빠른 시작 가이드',
     guideStepImport: '왼쪽 파일 패널에서 이미지를 불러오거나 드래그하세요.',
     guideStepTool: '왼쪽 도구에서 AI 복원/AI 지우개/텍스트/잘라내기/이동을 선택하세요.',
@@ -845,9 +827,13 @@ const UI = {
     cropHint: 'Drag on canvas or enter exact values.',
     cropDone: 'Crop applied',
     macroCount: 'Repeat count',
-    macroRun: 'Apply latest AI restore area to all files',
-    macroHint: 'Applies the latest brush region to the same position on all files.',
-    macroNoStroke: 'No recent brush region to repeat',
+    macroRunAll: 'Apply to all files',
+    macroRunSelected: 'Apply to selected files',
+    macroHint: 'Repeat the latest brush region at the same position.',
+    macroSelectHint: 'Use Shift+click to select multiple files.',
+    macroNoStrokeRestore: 'No recent AI restore brush region to repeat',
+    macroNoStrokeEraser: 'No recent AI eraser brush region to repeat',
+    macroNoSelectedFiles: 'No selected files',
     font: 'Font',
     size: 'Size',
     color: 'Color',
@@ -872,6 +858,7 @@ const UI = {
     exportedPdf: 'Exported PDF',
     dropHint: 'Drop image/PDF files to import instantly',
     reorderHint: 'Drag file cards to reorder pages.',
+    selectionHint: 'Click file: edit target · Shift+click: multi-select',
     guideTitle: 'Quick Start Guide',
     guideStepImport: 'Import files from the left panel or drag and drop.',
     guideStepTool: 'Pick AI Restore / AI Eraser / Text / Crop / Move from the left tool dock.',
@@ -1106,7 +1093,9 @@ function App() {
   const inpaintRunningRef = useRef(false)
   const debounceTimerRef = useRef<number | null>(null)
   const cropStartRef = useRef<{ x: number; y: number } | null>(null)
-  const lastMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
+  const lastRestoreMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
+  const lastEraserMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
+  const lastSelectionAnchorIdRef = useRef<string | null>(null)
   const activeRef = useRef<PageAsset | null>(null)
   const assetsRef = useRef<PageAsset[]>([])
   const textTransformBaseRef = useRef<{ textId: string; fontSize: number; rectHeight: number } | null>(null)
@@ -1150,13 +1139,22 @@ function App() {
     zoomBy(step)
   }
 
-  function toggleAssetExportSelection(assetId: string) {
-    setSelectedAssetIds((prev) => {
-      if (prev.includes(assetId)) {
-        return prev.filter((id) => id !== assetId)
-      }
-      return [...prev, assetId]
-    })
+  function addSelectedAssetRange(anchorId: string, targetId: string) {
+    const anchorIdx = assets.findIndex((a) => a.id === anchorId)
+    const targetIdx = assets.findIndex((a) => a.id === targetId)
+    if (anchorIdx < 0 || targetIdx < 0) return
+    const [start, end] = anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx]
+    const rangeIds = assets.slice(start, end + 1).map((a) => a.id)
+    setSelectedAssetIds((prev) => Array.from(new Set([...prev, ...rangeIds])))
+  }
+
+  function onAssetCardClick(e: ReactMouseEvent<HTMLDivElement>, assetId: string) {
+    const anchorId = lastSelectionAnchorIdRef.current ?? activeId ?? assetId
+    setActiveId(assetId)
+    if (e.shiftKey) {
+      addSelectedAssetRange(anchorId, assetId)
+    }
+    lastSelectionAnchorIdRef.current = assetId
   }
 
   function exportTargets(scope: ExportScope): PageAsset[] {
@@ -1193,6 +1191,9 @@ function App() {
     setCropRect(null)
     cropStartRef.current = null
     setCanvasOffset({ x: 0, y: 0 })
+  }, [activeId])
+
+  useEffect(() => {
     if (!active) {
       setBaseImg(null)
       return
@@ -1200,7 +1201,7 @@ function App() {
     loadHtmlImage(active.baseDataUrl)
       .then((img) => setBaseImg(img))
       .catch(() => setBaseImg(null))
-  }, [activeId, active?.baseDataUrl])
+  }, [active?.baseDataUrl])
 
   useEffect(() => {
     activeRef.current = active
@@ -2242,6 +2243,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
     if (tool === 'eraser') {
       if (!active) return
+      lastEraserMacroTemplateRef.current = normalizeStrokes([stroke], active.width, active.height)
       await applyLocalEraserForAsset(active.id, [stroke])
     }
   }
@@ -2329,7 +2331,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (!active) return
     const cloned = cloneStrokes(strokes)
     inpaintQueueRef.current.push({ assetId: active.id, strokes: cloned })
-    lastMacroTemplateRef.current = normalizeStrokes(cloned, active.width, active.height)
+    lastRestoreMacroTemplateRef.current = normalizeStrokes(cloned, active.width, active.height)
     if (debounceTimerRef.current !== null) {
       window.clearTimeout(debounceTimerRef.current)
     }
@@ -2368,15 +2370,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
-  async function runMacroRepeatRestore() {
-    const template = lastMacroTemplateRef.current
+  async function runMacroRepeatRestore(targets: PageAsset[]) {
+    const template = lastRestoreMacroTemplateRef.current
     if (!template || template.length === 0) {
-      setStatus(ui.macroNoStroke)
+      setStatus(ui.macroNoStrokeRestore)
+      return
+    }
+    if (targets.length === 0) {
+      setStatus(ui.macroNoSelectedFiles)
       return
     }
     const repeat = clamp(Math.round(macroRepeatCount), 1, 10)
-    const targets = [...assetsRef.current]
-    if (targets.length === 0) return
     const total = targets.length * repeat
     let doneCount = 0
     setBusy(ui.inpainting)
@@ -2402,27 +2406,47 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
+  async function runMacroRepeatEraser(targets: PageAsset[]) {
+    const template = lastEraserMacroTemplateRef.current
+    if (!template || template.length === 0) {
+      setStatus(ui.macroNoStrokeEraser)
+      return
+    }
+    if (targets.length === 0) {
+      setStatus(ui.macroNoSelectedFiles)
+      return
+    }
+    const repeat = clamp(Math.round(macroRepeatCount), 1, 10)
+    const total = targets.length * repeat
+    let doneCount = 0
+    setBusy(ui.inpainting)
+    setStatus(ui.inpainting)
+    runCancelableStart()
+    setProgressState({ label: ui.inpainting, value: 0, total, indeterminate: false })
+    try {
+      for (let pass = 0; pass < repeat; pass += 1) {
+        if (cancelRequestedRef.current) break
+        for (const asset of targets) {
+          if (cancelRequestedRef.current) break
+          const mapped = denormalizeStrokes(template, asset.width, asset.height)
+          await applyLocalEraserForAsset(asset.id, mapped)
+          doneCount += 1
+          setProgressState({ label: ui.inpainting, value: doneCount, total, indeterminate: false })
+        }
+      }
+      setStatus(ui.done)
+    } finally {
+      setBusy(null)
+      setProgressState(null)
+      runCancelableEnd()
+    }
+  }
+
   async function exportPngSet(targets: PageAsset[], pixelRatio: number) {
     if (targets.length === 0) return
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
-      if (targets.length > 1) {
-        const zip = new JSZip()
-        for (let idx = 0; idx < targets.length; idx += 1) {
-          const target = targets[idx]!
-          const dataUrl = await renderAssetToDataUrl(target, pixelRatio)
-          const blob = await dataUrlToBlob(dataUrl)
-          zip.file(buildLamiviFilename(target.name, 'png'), await blob.arrayBuffer())
-          setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
-        }
-        const first = targets[0]!
-        const zipBlob = await zip.generateAsync({ type: 'blob' })
-        downloadBlob(zipBlob, buildLamiviBundleFilename(first.name, '_images_png', 'zip'))
-        setStatus(ui.exportedPng)
-        return
-      }
-
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio)
@@ -2442,22 +2466,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
-      if (targets.length > 1) {
-        const zip = new JSZip()
-        for (let idx = 0; idx < targets.length; idx += 1) {
-          const target = targets[idx]!
-          const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', 0.92)
-          const blob = await dataUrlToBlob(dataUrl)
-          zip.file(buildLamiviFilename(target.name, 'jpg'), await blob.arrayBuffer())
-          setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
-        }
-        const first = targets[0]!
-        const zipBlob = await zip.generateAsync({ type: 'blob' })
-        downloadBlob(zipBlob, buildLamiviBundleFilename(first.name, '_images_jpg', 'zip'))
-        setStatus(ui.done)
-        return
-      }
-
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/jpeg', 0.92)
@@ -2477,22 +2485,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setBusy(ui.exporting)
     setProgressState({ label: ui.exporting, value: 0, total: Math.max(1, targets.length), indeterminate: false })
     try {
-      if (targets.length > 1) {
-        const zip = new JSZip()
-        for (let idx = 0; idx < targets.length; idx += 1) {
-          const target = targets[idx]!
-          const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', 0.92)
-          const blob = await dataUrlToBlob(dataUrl)
-          zip.file(buildLamiviFilename(target.name, 'webp'), await blob.arrayBuffer())
-          setProgressState({ label: ui.exporting, value: idx + 1, total: Math.max(1, targets.length), indeterminate: false })
-        }
-        const first = targets[0]!
-        const zipBlob = await zip.generateAsync({ type: 'blob' })
-        downloadBlob(zipBlob, buildLamiviBundleFilename(first.name, '_images_webp', 'zip'))
-        setStatus(ui.done)
-        return
-      }
-
       for (let idx = 0; idx < targets.length; idx += 1) {
         const target = targets[idx]!
         const dataUrl = await renderAssetToDataUrl(target, pixelRatio, 'image/webp', 0.92)
@@ -3154,10 +3146,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <div
                   key={a.id}
                   className={`asset ${a.id === activeId ? 'active' : ''} ${selectedAssetIds.includes(a.id) ? 'selected' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
-                  onClick={() => {
-                    setActiveId(a.id)
-                    toggleAssetExportSelection(a.id)
-                  }}
+                  onClick={(e) => onAssetCardClick(e, a.id)}
                   draggable
                   onDragStart={(e) => onAssetDragStart(e, a.id)}
                   onDragEnter={(e) => onAssetDragEnter(e, a.id)}
@@ -3171,9 +3160,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   <img className="thumb" src={a.baseDataUrl} alt={a.name} />
                   <div className="assetMeta">
                     <div className="assetTopRow">
-                      <span className={`assetSelectIcon ${selectedAssetIds.includes(a.id) ? 'on' : ''}`} aria-label={ui.selectForExport} title={ui.selectForExport}>
-                        {selectedAssetIds.includes(a.id) ? <FaCircleCheckIcon /> : <FaCircleIcon />}
-                      </span>
                       <div className="assetName">{a.name}</div>
                       <button
                         className="assetRemoveBtn"
@@ -3215,7 +3201,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button className="btn danger" onClick={clearAllAssets} disabled={assets.length === 0 || !!busy}>
               {ui.clearAllAssets}
             </button>
-            <div className="footerHint">{ui.reorderHint}</div>
+            <div className="footerHint">{ui.reorderHint} · {ui.selectionHint}</div>
           </div>
         </div>
 
@@ -3698,9 +3684,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         onChange={(e) => setMacroRepeatCount(clamp(Number(e.target.value), 1, 10))}
                       />
                     </div>
-                    <button className="btn primary macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatRestore()}>{ui.macroRun}</button>
+                    <button className="btn primary macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatRestore([...assetsRef.current])}>{ui.macroRunAll}</button>
+                    <button className="btn macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatRestore([...selectedAssets])}>{ui.macroRunSelected}</button>
                   </div>
-                  <div className="hint">{ui.macroHint}</div>
+                  <div className="hint">{ui.macroHint} {ui.macroSelectHint}</div>
                 </>
               ) : null}
 
@@ -3727,6 +3714,22 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                     />
                   </div>
                   <div className="hint">{brushSize}px · {ui.eraserHint}</div>
+                  <div className="macroControls">
+                    <div>
+                      <div className="label">{ui.macroCount}</div>
+                      <input
+                        className="input macroCountInput"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={macroRepeatCount}
+                        onChange={(e) => setMacroRepeatCount(clamp(Number(e.target.value), 1, 10))}
+                      />
+                    </div>
+                    <button className="btn primary macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatEraser([...assetsRef.current])}>{ui.macroRunAll}</button>
+                    <button className="btn macroRunBtn" disabled={!!busy} onClick={() => void runMacroRepeatEraser([...selectedAssets])}>{ui.macroRunSelected}</button>
+                  </div>
+                  <div className="hint">{ui.macroHint} {ui.macroSelectHint}</div>
                 </>
               ) : null}
 
