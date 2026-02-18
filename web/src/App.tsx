@@ -1408,6 +1408,14 @@ function App() {
       try {
         const res = await fetch('/api/health')
         if (!res.ok) return
+        const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+        if (!contentType.includes('application/json')) {
+          if (!cancelled) {
+            setAiReady(false)
+            setAiError('AI API 응답 형식 오류 (/api 경로/프록시 확인)')
+          }
+          return
+        }
         const data = (await res.json()) as {
           worker?: {
             device?: string
@@ -2859,6 +2867,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ target: 'restore', device: next }),
       })
+      const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+      if (!contentType.includes('application/json')) {
+        const text = await res.text().catch(() => '')
+        const snippet = text.slice(0, 140).replace(/\s+/g, ' ').trim()
+        throw new Error(`AI API 응답 형식이 올바르지 않습니다. (/api 경로/프록시 확인) ${snippet}`)
+      }
+
       const payload = (await res.json()) as {
         error?: string
         worker?: { device?: string; ready?: boolean; error?: string | null; requestedDevice?: 'auto' | 'cpu' | 'cuda'; cudaAvailable?: boolean | null }
