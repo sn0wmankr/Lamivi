@@ -84,27 +84,11 @@ Check fields like device/cuda availability in response.
 
 ## Common issues
 
-### Error: `Username and password required` (GitHub Actions)
-
-For Docker publish workflows, set:
-- `secrets.DOCKERHUB_TOKEN`
-- `vars.DOCKERHUB_USERNAME` or `secrets.DOCKERHUB_USERNAME`
-
 ### GPU not used
 
 - Confirm host driver and NVIDIA Container Toolkit
 - Try `LAMIVI_DEVICE=auto`
 - Check `/api/health` response
-
-### Port already in use
-
-Map to another port:
-
-```bash
-docker run --rm --gpus all -p 18744:18743 sn0wmankr/lamivi:latest
-```
-
-Then open `http://localhost:18744`.
 
 ## Project notes
 
