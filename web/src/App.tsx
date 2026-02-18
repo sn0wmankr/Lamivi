@@ -116,6 +116,28 @@ function buildLamiviBundleFilename(name: string, suffix: string, ext: string) {
   return `${safeBase}_lamivi${suffix}.${ext}`
 }
 
+function FaCircleIcon() {
+  return (
+    <svg viewBox="0 0 512 512" width="16" height="16" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM256 64a192 192 0 1 1 0 384 192 192 0 1 1 0-384z"
+      />
+    </svg>
+  )
+}
+
+function FaCircleCheckIcon() {
+  return (
+    <svg viewBox="0 0 512 512" width="16" height="16" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209 241 337c-9 9-24 9-33 0l-65-65c-9-9-9-24 0-33s24-9 33 0l49 49 111-111c9-9 24-9 33 0s9 24 0 33z"
+      />
+    </svg>
+  )
+}
+
 function normalizeCropRect(rect: CropRect, maxW: number, maxH: number): CropRect {
   const x = clamp(Math.round(rect.x), 0, Math.max(0, maxW - 1))
   const y = clamp(Math.round(rect.y), 0, Math.max(0, maxH - 1))
@@ -3023,7 +3045,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <div
                   key={a.id}
                   className={`asset ${a.id === activeId ? 'active' : ''} ${selectedAssetIds.includes(a.id) ? 'selected' : ''} ${a.id === dragAssetId ? 'dragging' : ''} ${a.id === dragOverAssetId && a.id !== dragAssetId ? 'dropTarget' : ''}`}
-                  onClick={() => setActiveId(a.id)}
+                  onClick={() => {
+                    setActiveId(a.id)
+                    toggleAssetExportSelection(a.id)
+                  }}
                   draggable
                   onDragStart={(e) => onAssetDragStart(e, a.id)}
                   onDragEnter={(e) => onAssetDragEnter(e, a.id)}
@@ -3037,16 +3062,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   <img className="thumb" src={a.baseDataUrl} alt={a.name} />
                   <div className="assetMeta">
                     <div className="assetTopRow">
-                      <label className="assetSelect">
-                        <input
-                          type="checkbox"
-                          checked={selectedAssetIds.includes(a.id)}
-                          onChange={() => toggleAssetExportSelection(a.id)}
-                          onClick={(e) => e.stopPropagation()}
-                          aria-label={ui.selectForExport}
-                        />
-                        <span>{ui.selectForExport}</span>
-                      </label>
+                      <span className={`assetSelectIcon ${selectedAssetIds.includes(a.id) ? 'on' : ''}`} aria-label={ui.selectForExport} title={ui.selectForExport}>
+                        {selectedAssetIds.includes(a.id) ? <FaCircleCheckIcon /> : <FaCircleIcon />}
+                      </span>
                       <div className="assetName">{a.name}</div>
                       <button
                         className="assetRemoveBtn"

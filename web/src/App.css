@@ -466,18 +466,18 @@
   min-width: 0;
 }
 
-.assetSelect {
+.assetSelectIcon {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 10px;
-  flex-shrink: 0;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: rgba(255, 255, 255, 0.45);
+  flex: 0 0 18px;
 }
 
-.assetSelect input {
-  width: 13px;
-  height: 13px;
+.assetSelectIcon.on {
+  color: #8af7db;
 }
 
 .assetName {
