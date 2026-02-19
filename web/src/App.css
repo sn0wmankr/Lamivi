@@ -2779,6 +2779,13 @@
   gap: 10px;
 }
 
+.cropPresetRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .cropPreviewCard {
   margin-top: 10px;
   padding: 10px;

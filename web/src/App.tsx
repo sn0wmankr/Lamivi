@@ -637,8 +637,13 @@ const UI = {
     previewCrop: '잘라내기 미리보기',
     cropPreviewTitle: '잘라내기 미리보기',
     cropPreviewHint: '미리보기는 저장되지 않습니다.',
+    cropPreset: '비율 프리셋',
+    cropPresetFree: '자유',
+    cropPresetSquare: '1:1',
+    cropPresetFourThree: '4:3',
+    cropPresetSixteenNine: '16:9',
     cancelCrop: '영역 취소',
-    cropHint: '드래그로 영역을 지정하거나 수치를 입력하세요. Enter 적용 · P 미리보기 · Esc 취소',
+    cropHint: '드래그 또는 수치 입력 · Enter 적용 · P 미리보기 · Esc 취소 · 방향키 이동(Shift 가속) · Alt+방향키 크기 조절',
     cropDone: '잘라내기를 적용했습니다',
     macroCount: '반복 횟수',
     macroRunAll: '전체 파일 적용',
@@ -822,7 +827,7 @@ const UI = {
     shortcutsNoMatch: '검색 결과가 없습니다.',
     shortcutCopied: (keyLabel: string) => `단축키 복사: ${keyLabel}`,
     shortcutsClose: '닫기',
-    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · Esc 선택/자르기 해제',
+    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · 방향키 이동 · Alt+방향키 크기조절 · Esc 선택/자르기 해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `전체 파일 ${count}개에 적용할까요?`,
     macroConfirmSelected: (count: number) => `선택 파일 ${count}개에 적용할까요?`,
@@ -980,8 +985,13 @@ const UI = {
     previewCrop: 'Preview crop',
     cropPreviewTitle: 'Crop preview',
     cropPreviewHint: 'Preview is not saved until apply.',
+    cropPreset: 'Ratio preset',
+    cropPresetFree: 'Free',
+    cropPresetSquare: '1:1',
+    cropPresetFourThree: '4:3',
+    cropPresetSixteenNine: '16:9',
     cancelCrop: 'Clear area',
-    cropHint: 'Drag on canvas or enter exact values. Enter apply, P preview, Esc clear.',
+    cropHint: 'Drag or type values · Enter apply · P preview · Esc clear · Arrows move (Shift faster) · Alt+arrows resize',
     cropDone: 'Crop applied',
     macroCount: 'Repeat count',
     macroRunAll: 'Apply to all files',
@@ -1165,7 +1175,7 @@ const UI = {
     shortcutsNoMatch: 'No matching shortcuts.',
     shortcutCopied: (keyLabel: string) => `Shortcut copied: ${keyLabel}`,
     shortcutsClose: 'Close',
-    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · Esc Clear selection/crop',
+    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · Arrows move · Alt+arrows resize · Esc Clear selection/crop',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `Apply to all ${count} files?`,
     macroConfirmSelected: (count: number) => `Apply to ${count} selected files?`,
@@ -2213,13 +2223,33 @@ function App() {
         const step = e.shiftKey ? 10 : 1
         if (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown') {
           e.preventDefault()
-          let dx = 0
-          let dy = 0
-          if (key === 'arrowleft') dx = -step
-          if (key === 'arrowright') dx = step
-          if (key === 'arrowup') dy = -step
-          if (key === 'arrowdown') dy = step
-          setCropRect(normalizeCropRect({ ...rect, x: rect.x + dx, y: rect.y + dy }, active.width, active.height))
+          if (e.altKey) {
+            let dw = 0
+            let dh = 0
+            if (key === 'arrowleft') dw = -step
+            if (key === 'arrowright') dw = step
+            if (key === 'arrowup') dh = -step
+            if (key === 'arrowdown') dh = step
+            setCropRect(
+              normalizeCropRect(
+                {
+                  ...rect,
+                  width: clamp(rect.width + dw, 1, active.width - rect.x),
+                  height: clamp(rect.height + dh, 1, active.height - rect.y),
+                },
+                active.width,
+                active.height,
+              ),
+            )
+          } else {
+            let dx = 0
+            let dy = 0
+            if (key === 'arrowleft') dx = -step
+            if (key === 'arrowright') dx = step
+            if (key === 'arrowup') dy = -step
+            if (key === 'arrowdown') dy = step
+            setCropRect(normalizeCropRect({ ...rect, x: rect.x + dx, y: rect.y + dy }, active.width, active.height))
+          }
           setCropPreviewDataUrl(null)
           return
         }
@@ -2435,6 +2465,44 @@ function App() {
     }
     const next = normalizeCropRect({ ...base, [field]: Number.isFinite(value) ? value : 0 }, active.width, active.height)
     setCropRect(next)
+    setCropPreviewDataUrl(null)
+  }
+
+  function applyCropAspect(ratio: number | null) {
+    if (!active) return
+    if (ratio === null) {
+      setCropRect({
+        x: Math.round(active.width * 0.1),
+        y: Math.round(active.height * 0.1),
+        width: Math.max(1, Math.round(active.width * 0.8)),
+        height: Math.max(1, Math.round(active.height * 0.8)),
+      })
+      setCropPreviewDataUrl(null)
+      return
+    }
+    const base = activeCropRect ?? {
+      x: Math.round(active.width * 0.1),
+      y: Math.round(active.height * 0.1),
+      width: Math.round(active.width * 0.8),
+      height: Math.round(active.height * 0.8),
+    }
+    const centerX = base.x + base.width / 2
+    const centerY = base.y + base.height / 2
+
+    let width = clamp(Math.round(base.width), 1, active.width)
+    let height = Math.max(1, Math.round(width / ratio))
+    if (height > active.height) {
+      height = active.height
+      width = Math.max(1, Math.round(height * ratio))
+    }
+    if (width > active.width) {
+      width = active.width
+      height = Math.max(1, Math.round(width / ratio))
+    }
+
+    const x = clamp(Math.round(centerX - width / 2), 0, Math.max(0, active.width - width))
+    const y = clamp(Math.round(centerY - height / 2), 0, Math.max(0, active.height - height))
+    setCropRect(normalizeCropRect({ x, y, width, height }, active.width, active.height))
     setCropPreviewDataUrl(null)
   }
 
@@ -5508,6 +5576,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                       <div className="label">{ui.cropHeight}</div>
                       <input className="input" type="number" min={1} max={Math.max(1, active?.height ?? 1)} value={activeCropRect?.height ?? ''} onChange={(e) => updateCropField('height', Number(e.target.value))} />
                     </div>
+                  </div>
+                  <div className="label">{ui.cropPreset}</div>
+                  <div className="cropPresetRow">
+                    <button className="btn ghost" disabled={!active} onClick={() => applyCropAspect(null)}>{ui.cropPresetFree}</button>
+                    <button className="btn ghost" disabled={!active} onClick={() => applyCropAspect(1)}>{ui.cropPresetSquare}</button>
+                    <button className="btn ghost" disabled={!active} onClick={() => applyCropAspect(4 / 3)}>{ui.cropPresetFourThree}</button>
+                    <button className="btn ghost" disabled={!active} onClick={() => applyCropAspect(16 / 9)}>{ui.cropPresetSixteenNine}</button>
                   </div>
                   <div className="buttonRow">
                     <button className="btn primary" disabled={!active || !activeCropRect || !!busy} onClick={() => void applyCrop()}>{ui.applyCrop}</button>
