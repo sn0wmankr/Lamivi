@@ -1489,6 +1489,7 @@ function App() {
   const [cropPreset, setCropPreset] = useState<CropPreset>('free')
   const [cropPreviewDataUrl, setCropPreviewDataUrl] = useState<string | null>(null)
   const [cropPreviewCompare, setCropPreviewCompare] = useState(55)
+  const [cropCompareDragging, setCropCompareDragging] = useState(false)
   const [cropHoverHandle, setCropHoverHandle] = useState<CropHandle | null>(null)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
@@ -1503,6 +1504,7 @@ function App() {
   const debounceTimerRef = useRef<number | null>(null)
   const cropStartRef = useRef<{ x: number; y: number } | null>(null)
   const cropResizeRef = useRef<{ handle: CropHandle; rect: CropRect } | null>(null)
+  const cropCompareFrameRef = useRef<HTMLDivElement | null>(null)
   const lastRestoreMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
   const lastEraserMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
   const lastSelectionAnchorIdRef = useRef<string | null>(null)
@@ -1621,6 +1623,8 @@ function App() {
     setCropRect(null)
     setCropPreset('free')
     setCropPreviewDataUrl(null)
+    setCropPreviewCompare(55)
+    setCropCompareDragging(false)
     setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
@@ -2188,10 +2192,29 @@ function App() {
     if (tool === 'crop') return
     setCropPreset('free')
     setCropPreviewDataUrl(null)
+    setCropCompareDragging(false)
     setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
   }, [tool])
+
+  useEffect(() => {
+    if (!cropCompareDragging) return
+    const onMove = (event: PointerEvent) => {
+      const frame = cropCompareFrameRef.current
+      if (!frame) return
+      const box = frame.getBoundingClientRect()
+      const ratio = clamp(((event.clientX - box.left) / Math.max(1, box.width)) * 100, 0, 100)
+      setCropPreviewCompare(Math.round(ratio))
+    }
+    const onUp = () => setCropCompareDragging(false)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [cropCompareDragging])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -2564,11 +2587,21 @@ function App() {
     setCropPreviewDataUrl(null)
   }
 
+  function onCropComparePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    const frame = cropCompareFrameRef.current
+    if (!frame) return
+    const box = frame.getBoundingClientRect()
+    const ratio = clamp(((event.clientX - box.left) / Math.max(1, box.width)) * 100, 0, 100)
+    setCropPreviewCompare(Math.round(ratio))
+    setCropCompareDragging(true)
+  }
+
   function clearCropSelection(nextStatus?: string) {
     setCropRect(null)
     setCropPreset('free')
     setCropPreviewDataUrl(null)
     setCropPreviewCompare(55)
+    setCropCompareDragging(false)
     setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
@@ -5678,12 +5711,19 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   {cropPreviewDataUrl && active ? (
                     <div className="cropPreviewCard">
                       <div className="label">{ui.cropPreviewTitle}</div>
-                      <div className="cropCompareFrame" aria-label={ui.cropPreviewTitle}>
+                      <div
+                        ref={cropCompareFrameRef}
+                        className={`cropCompareFrame ${cropCompareDragging ? 'dragging' : ''}`}
+                        aria-label={ui.cropPreviewTitle}
+                        onPointerDown={onCropComparePointerDown}
+                      >
                         <img className="cropPreviewImage" src={active?.baseDataUrl} alt={ui.cropCompareBefore} loading="lazy" decoding="async" />
                         <div className="cropCompareOverlay" style={{ width: `${cropPreviewCompare}%` }}>
                           <img className="cropPreviewImage" src={cropPreviewDataUrl} alt={ui.cropCompareAfter} loading="lazy" decoding="async" />
                         </div>
-                        <div className="cropCompareDivider" style={{ left: `${cropPreviewCompare}%` }} />
+                        <div className="cropCompareDivider" style={{ left: `${cropPreviewCompare}%` }}>
+                          <span className="cropCompareThumb" />
+                        </div>
                       </div>
                       <div className="cropCompareLabels">
                         <span>{ui.cropCompareBefore}</span>

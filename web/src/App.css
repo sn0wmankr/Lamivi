@@ -2826,6 +2826,13 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(3, 7, 13, 0.85);
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.cropCompareFrame.dragging {
+  cursor: grabbing;
 }
 
 .cropPreviewImage {
@@ -2854,10 +2861,22 @@
   top: 0;
   bottom: 0;
   width: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transform: translateX(-1px);
   background: rgba(100, 210, 255, 0.9);
   box-shadow: 0 0 0 1px rgba(7, 12, 18, 0.5);
   pointer-events: none;
+}
+
+.cropCompareThumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(100, 210, 255, 0.95);
+  background: rgba(8, 14, 24, 0.95);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
 }
 
 .cropCompareLabels {
