@@ -4623,7 +4623,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           ) : null}
           {active ? <div className="modeBadge">{tool === 'text' ? ui.modeText : tool === 'crop' ? ui.modeCrop : tool === 'move' ? ui.modeMove : tool === 'restore' ? ui.modeRestore : ui.modeEraser}</div> : null}
           {active ? (
-            <div className={`canvasZoomDock ${tool === 'crop' ? 'dockPassthrough' : ''}`} title={ui.zoomHintCtrlWheel}>
+            <div className={`canvasZoomDock ${tool === 'crop' ? 'dockPassthrough dockCropHidden' : ''}`} title={ui.zoomHintCtrlWheel}>
               <button className="iconDockBtn" onClick={() => zoomBy(-0.1)} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
               <button className="iconDockBtn zoomPct" onClick={() => { setZoom(1); setCanvasOffset({ x: 0, y: 0 }) }} title={ui.zoomReset} aria-label={ui.zoomReset}>
                 {Math.round(canvasZoom * 100)}%
@@ -4643,7 +4643,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
           ) : null}
           {active ? (
-            <div className={`canvasHistoryDock ${tool === 'crop' ? 'dockPassthrough' : ''}`}>
+            <div className={`canvasHistoryDock ${tool === 'crop' ? 'dockPassthrough dockCropHidden' : ''}`}>
               <button
                 className="iconDockBtn"
                 title={ui.undoAction}
@@ -4973,6 +4973,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         strokeWidth={2}
                         listening={false}
                       />
+                      <Circle x={activeCropRect.x} y={activeCropRect.y} radius={4.5} fill="rgba(100,210,255,0.96)" stroke="rgba(7,12,18,0.85)" strokeWidth={1.2} listening={false} />
+                      <Circle x={activeCropRect.x + activeCropRect.width} y={activeCropRect.y} radius={4.5} fill="rgba(100,210,255,0.96)" stroke="rgba(7,12,18,0.85)" strokeWidth={1.2} listening={false} />
+                      <Circle x={activeCropRect.x} y={activeCropRect.y + activeCropRect.height} radius={4.5} fill="rgba(100,210,255,0.96)" stroke="rgba(7,12,18,0.85)" strokeWidth={1.2} listening={false} />
+                      <Circle x={activeCropRect.x + activeCropRect.width} y={activeCropRect.y + activeCropRect.height} radius={4.5} fill="rgba(100,210,255,0.96)" stroke="rgba(7,12,18,0.85)" strokeWidth={1.2} listening={false} />
                       <Text
                         x={activeCropRect.x + 6}
                         y={Math.max(4, activeCropRect.y - 20)}
