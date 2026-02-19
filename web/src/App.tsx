@@ -694,6 +694,7 @@ const UI = {
     settingsTabInfo: '정보',
     settingsSearchPlaceholder: '설정 검색',
     settingsNoMatch: '검색 조건에 맞는 설정이 없습니다.',
+    settingsRecentSearches: '최근 검색',
     settingsSuggestDevice: 'AI 엔진',
     settingsSuggestAutosave: '자동 저장',
     settingsSuggestDensity: 'UI 밀도',
@@ -706,6 +707,10 @@ const UI = {
     activityCopy: '로그 복사',
     activityCopyItem: '항목 복사',
     activityJumpItem: '이 파일로 이동',
+    activityPreviewOpen: '시점 미리보기',
+    activityPreviewUnavailable: '이 로그는 미리보기를 지원하지 않습니다',
+    activityPreviewTitle: '작업 시점 미리보기',
+    activityPreviewClose: '닫기',
     activityDownload: '로그 저장',
     activityDownloadFiltered: '필터만 저장',
     activityDownloadAll: '전체 저장',
@@ -1004,6 +1009,7 @@ const UI = {
     settingsTabInfo: 'Info',
     settingsSearchPlaceholder: 'Search settings',
     settingsNoMatch: 'No settings match your search.',
+    settingsRecentSearches: 'Recent searches',
     settingsSuggestDevice: 'AI engine',
     settingsSuggestAutosave: 'Autosave',
     settingsSuggestDensity: 'UI density',
@@ -1016,6 +1022,10 @@ const UI = {
     activityCopy: 'Copy log',
     activityCopyItem: 'Copy item',
     activityJumpItem: 'Jump to file',
+    activityPreviewOpen: 'Preview snapshot',
+    activityPreviewUnavailable: 'This log has no preview snapshot',
+    activityPreviewTitle: 'Activity snapshot preview',
+    activityPreviewClose: 'Close',
     activityDownload: 'Save log',
     activityDownloadFiltered: 'Save filtered',
     activityDownloadAll: 'Save all',
@@ -1205,6 +1215,15 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
   const [settingsSearch, setSettingsSearch] = useState('')
+  const [settingsSearchHistory, setSettingsSearchHistory] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('lamivi-settings-search-history')
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string').slice(0, 5) : []
+    } catch {
+      return []
+    }
+  })
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -1214,6 +1233,7 @@ function App() {
   })
   const [toastLog, setToastLog] = useState<ToastLogItem[]>([])
   const [activityMenu, setActivityMenu] = useState<{ x: number; y: number; item: ToastLogItem } | null>(null)
+  const [activityPreview, setActivityPreview] = useState<{ item: ToastLogItem; snapshot: PageSnapshot | null } | null>(null)
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>(() => {
     try {
       const saved = window.localStorage.getItem('lamivi-activity-filter')
@@ -1333,6 +1353,7 @@ function App() {
   const preferredAppliedRef = useRef(false)
   const guideFlashTimerRef = useRef<number | null>(null)
   const tooltipMuteTimerRef = useRef<number | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
   const quickBarOffsetsRef = useRef<Record<string, { x: number; y: number }>>({})
   const [guideFocusTarget, setGuideFocusTarget] = useState<'files' | 'tools' | 'canvas' | 'export' | null>(null)
   const cancelRequestedRef = useRef(false)
@@ -1497,6 +1518,14 @@ function App() {
       // ignore
     }
   }, [locale])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-settings-search-history', JSON.stringify(settingsSearchHistory.slice(0, 5)))
+    } catch {
+      // ignore
+    }
+  }, [settingsSearchHistory])
 
   useEffect(() => {
     try {
@@ -1716,6 +1745,15 @@ function App() {
       setShortcutsCategory('all')
     }
   }, [showShortcutsHelp])
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current)
+        longPressTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!activityMenu) return
@@ -3282,6 +3320,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         : pendingExportFormat === 'pdf'
           ? ui.exportFormatHintPdf
           : ui.exportFormatHintPptx
+  const exportSummaryText = `${ui.exportFormat}: ${pendingExportFormat.toUpperCase()} · ${pendingExportRatio}x${pendingExportFormat === 'jpg' || pendingExportFormat === 'webp' ? ` · ${ui.exportImageQuality}: ${pendingExportQuality}` : ''} · ${ui.exportScope}: ${pendingExportScope}`
   const settingsQueryLower = settingsSearch.trim().toLowerCase()
   const matchSetting = (label: string) => settingsQueryLower.length === 0 || label.toLowerCase().includes(settingsQueryLower)
   const settingRowClass = (label: string) => settingsQueryLower.length > 0 && matchSetting(label) ? 'settingsRow settingsRowMatch' : 'settingsRow'
@@ -3376,6 +3415,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   function closeSettings() {
+    const trimmed = settingsSearch.trim()
+    if (trimmed) {
+      setSettingsSearchHistory((prev) => [trimmed, ...prev.filter((v) => v !== trimmed)].slice(0, 5))
+    }
     setSettingsOpen(false)
     setSettingsSearch('')
   }
@@ -3439,6 +3482,36 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     e.preventDefault()
     e.stopPropagation()
     setActivityMenu({ x: e.clientX, y: e.clientY, item })
+  }
+
+  function openActivityPreview(item: ToastLogItem) {
+    if (!item.snapshot) {
+      setStatus(ui.activityPreviewUnavailable)
+      return
+    }
+    const parsed = parseSnapshot(item.snapshot)
+    if (!parsed) {
+      setStatus(ui.activityPreviewUnavailable)
+      return
+    }
+    setActivityPreview({ item, snapshot: parsed })
+  }
+
+  function beginLongPressHint(message: string) {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      setStatus(message)
+      longPressTimerRef.current = null
+    }, 460)
+  }
+
+  function cancelLongPressHint() {
+    if (longPressTimerRef.current === null) return
+    window.clearTimeout(longPressTimerRef.current)
+    longPressTimerRef.current = null
   }
 
   async function copyDiagnostics() {
@@ -3691,17 +3764,37 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           ) : null}
 
           <button className="activityBtn" onClick={() => setShowActivityLog((prev) => !prev)}>
+            <span
+              onTouchStart={() => beginLongPressHint(showActivityLog ? ui.activityHide : ui.activityShow)}
+              onTouchEnd={cancelLongPressHint}
+              onTouchCancel={cancelLongPressHint}
+            >
             <span className="ctrlIcon" aria-hidden="true">🧾</span>
             <span className="ctrlLabel">{showActivityLog ? ui.activityHide : ui.activityShow}</span>
+            </span>
           </button>
 
           <button className="activityBtn" onClick={() => setShowShortcutsHelp((prev) => !prev)} title={ui.shortcutsToggleHint}>
+            <span
+              onTouchStart={() => beginLongPressHint(ui.shortcutsHelp)}
+              onTouchEnd={cancelLongPressHint}
+              onTouchCancel={cancelLongPressHint}
+            >
             <span className="ctrlIcon" aria-hidden="true">⌨</span>
             <span className="ctrlLabel">{ui.shortcutsHelp}</span>
+            </span>
           </button>
 
           <div className="settingsWrap">
-            <button className="settingsBtn" onClick={() => (settingsOpen ? closeSettings() : openSettings())} aria-label={ui.settings} title={ui.settings}>
+            <button
+              className="settingsBtn"
+              onClick={() => (settingsOpen ? closeSettings() : openSettings())}
+              onTouchStart={() => beginLongPressHint(ui.settings)}
+              onTouchEnd={cancelLongPressHint}
+              onTouchCancel={cancelLongPressHint}
+              aria-label={ui.settings}
+              title={ui.settings}
+            >
               ⚙
             </button>
           </div>
@@ -3743,6 +3836,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 </button>
               ))}
             </div>
+            {settingsSearchHistory.length > 0 ? (
+              <div className="settingsHistoryRow">
+                <span className="hint settingsHistoryLabel">{ui.settingsRecentSearches}</span>
+                {settingsSearchHistory.map((keyword) => (
+                  <button key={`history-${keyword}`} className="tabBtn settingsSuggestBtn" onClick={() => setSettingsSearch(keyword)}>
+                    {keyword}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className="settingsLayout">
               <div className="settingsSidebar">
@@ -4899,6 +5002,23 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         <div className="activityContextMenu" style={{ left: activityMenu.x, top: activityMenu.y }} onPointerDown={(e) => e.stopPropagation()}>
           <button className="menuItem" onClick={() => { void copyActivityItem(activityMenu.item); setActivityMenu(null) }}>{ui.activityCopyItem}</button>
           <button className="menuItem" disabled={!activityMenu.item.assetId} onClick={() => { jumpToActivity(activityMenu.item); setActivityMenu(null) }}>{ui.activityJumpItem}</button>
+          <button className="menuItem" disabled={!activityMenu.item.snapshot} onClick={() => { openActivityPreview(activityMenu.item); setActivityMenu(null) }}>{ui.activityPreviewOpen}</button>
+        </div>
+      ) : null}
+      {activityPreview ? (
+        <div className="dialogBackdrop" onClick={() => setActivityPreview(null)}>
+          <div className="dialog activityPreviewDialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dialogTitle">{ui.activityPreviewTitle}</div>
+            {activityPreview.snapshot ? (
+              <img className="activityPreviewImage" src={activityPreview.snapshot.baseDataUrl} alt={ui.activityPreviewTitle} />
+            ) : (
+              <div className="hint">{ui.activityPreviewUnavailable}</div>
+            )}
+            <div className="hint">[{formatLogTimestamp(activityPreview.item.at)}] {activityKindLabel(activityPreview.item)}: {activityPreview.item.text}</div>
+            <div className="dialogActions">
+              <button className="btn" onClick={() => setActivityPreview(null)}>{ui.activityPreviewClose}</button>
+            </div>
+          </div>
         </div>
       ) : null}
       {isFileDragOver ? (
@@ -4971,6 +5091,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   <span className="presetHint">{ui.exportPresetSpeedBalanced}</span>
                 </button>
               </div>
+              <div className="exportSummaryCard">{exportSummaryText}</div>
             </div>
             <div>
               <div className="label">{ui.exportScope}</div>
