@@ -57,6 +57,7 @@ type SettingsTab = 'general' | 'editing' | 'info'
 type TooltipDensity = 'simple' | 'detailed'
 type AnimationStrength = 'low' | 'default' | 'high'
 type ShortcutCategory = 'tools' | 'selection' | 'history'
+type MobileQuickAction = 'export' | 'activity' | 'shortcuts' | 'settings'
 
 type ToastLogItem = {
   id: string
@@ -702,6 +703,13 @@ const UI = {
     settingsRecentClear: '최근 검색 지우기',
     settingsRecentRemove: (keyword: string) => `최근 검색 제거: ${keyword}`,
     settingsMobileQuickActions: '모바일 퀵 액션 바',
+    settingsMobileQuickOrder: '퀵 액션 순서',
+    settingsMobileActionExport: '내보내기',
+    settingsMobileActionActivity: '로그',
+    settingsMobileActionShortcuts: '단축키',
+    settingsMobileActionSettings: '설정',
+    settingsMoveUp: '위로',
+    settingsMoveDown: '아래로',
     settingsLastAutoSave: '마지막 자동 저장',
     settingsNoAutoSave: '자동 저장 꺼짐',
     activityLog: '작업 로그',
@@ -715,6 +723,8 @@ const UI = {
     activityPreviewTitle: '작업 시점 미리보기',
     activityPreviewClose: '닫기',
     activityPreviewCompare: '비교 슬라이더',
+    activityPreviewBefore: '스냅샷',
+    activityPreviewAfter: '현재',
     activityDownload: '로그 저장',
     activityDownloadFiltered: '필터만 저장',
     activityDownloadAll: '전체 저장',
@@ -1021,6 +1031,13 @@ const UI = {
     settingsRecentClear: 'Clear recent searches',
     settingsRecentRemove: (keyword: string) => `Removed recent search: ${keyword}`,
     settingsMobileQuickActions: 'Mobile quick action rail',
+    settingsMobileQuickOrder: 'Quick action order',
+    settingsMobileActionExport: 'Export',
+    settingsMobileActionActivity: 'Log',
+    settingsMobileActionShortcuts: 'Shortcuts',
+    settingsMobileActionSettings: 'Settings',
+    settingsMoveUp: 'Up',
+    settingsMoveDown: 'Down',
     settingsLastAutoSave: 'Last autosave',
     settingsNoAutoSave: 'Autosave off',
     activityLog: 'Activity log',
@@ -1034,6 +1051,8 @@ const UI = {
     activityPreviewTitle: 'Activity snapshot preview',
     activityPreviewClose: 'Close',
     activityPreviewCompare: 'Compare slider',
+    activityPreviewBefore: 'Snapshot',
+    activityPreviewAfter: 'Current',
     activityDownload: 'Save log',
     activityDownloadFiltered: 'Save filtered',
     activityDownloadAll: 'Save all',
@@ -1239,6 +1258,19 @@ function App() {
       return true
     }
   })
+  const [mobileQuickOrder, setMobileQuickOrder] = useState<MobileQuickAction[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('lamivi-mobile-quick-order')
+      const parsed = raw ? JSON.parse(raw) : null
+      if (Array.isArray(parsed) && parsed.length === 4) {
+        const filtered = parsed.filter((v): v is MobileQuickAction => v === 'export' || v === 'activity' || v === 'shortcuts' || v === 'settings')
+        if (new Set(filtered).size === 4) return filtered
+      }
+    } catch {
+      // ignore
+    }
+    return ['export', 'activity', 'shortcuts', 'settings']
+  })
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -1370,6 +1402,7 @@ function App() {
   const guideFlashTimerRef = useRef<number | null>(null)
   const tooltipMuteTimerRef = useRef<number | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
+  const activityQueryInitRef = useRef(false)
   const quickBarOffsetsRef = useRef<Record<string, { x: number; y: number }>>({})
   const [guideFocusTarget, setGuideFocusTarget] = useState<'files' | 'tools' | 'canvas' | 'export' | null>(null)
   const cancelRequestedRef = useRef(false)
@@ -1542,6 +1575,43 @@ function App() {
       // ignore
     }
   }, [showMobileQuickActions])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-mobile-quick-order', JSON.stringify(mobileQuickOrder))
+    } catch {
+      // ignore
+    }
+  }, [mobileQuickOrder])
+
+  useEffect(() => {
+    if (activityQueryInitRef.current) return
+    activityQueryInitRef.current = true
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const open = params.get('activityOpen')
+      const filter = params.get('activityFilter')
+      const sort = params.get('activitySort')
+      if (open === '1' || open === '0') setShowActivityLog(open === '1')
+      if (filter === 'all' || filter === 'error' || filter === 'success' || filter === 'working') setActivityFilter(filter)
+      if (sort === 'latest' || sort === 'oldest') setActivitySort(sort)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      params.set('activityOpen', showActivityLog ? '1' : '0')
+      params.set('activityFilter', activityFilter)
+      params.set('activitySort', activitySort)
+      const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`
+      window.history.replaceState(null, '', next)
+    } catch {
+      // ignore
+    }
+  }, [showActivityLog, activityFilter, activitySort])
 
   useEffect(() => {
     try {
@@ -3373,7 +3443,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }, [activityPreview, assets])
   const hasSettingsMatch = settingsQueryLower.length === 0 || (
     settingsTab === 'general'
-      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
+      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsMobileQuickOrder, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
       : settingsTab === 'editing'
         ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
         : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsVersion, ui.settingsRepo].some(matchSetting)
@@ -3535,6 +3605,60 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   function removeSettingsSearchHistoryItem(keyword: string) {
     setSettingsSearchHistory((prev) => prev.filter((item) => item !== keyword))
     setStatus(ui.settingsRecentRemove(keyword))
+  }
+
+  function mobileActionLabel(action: MobileQuickAction) {
+    if (action === 'export') return ui.settingsMobileActionExport
+    if (action === 'activity') return ui.settingsMobileActionActivity
+    if (action === 'shortcuts') return ui.settingsMobileActionShortcuts
+    return ui.settingsMobileActionSettings
+  }
+
+  function mobileActionIcon(action: MobileQuickAction) {
+    if (action === 'export') return '⬇'
+    if (action === 'activity') return '🧾'
+    if (action === 'shortcuts') return '⌨'
+    return '⚙'
+  }
+
+  function runMobileQuickAction(action: MobileQuickAction) {
+    if (action === 'export') {
+      if (!hasSelectedAssets && pendingExportScope === 'selected') {
+        setPendingExportScope('current')
+      }
+      setExportDialogOpen(true)
+      return
+    }
+    if (action === 'activity') {
+      setShowActivityLog((prev) => !prev)
+      return
+    }
+    if (action === 'shortcuts') {
+      setShowShortcutsHelp((prev) => !prev)
+      return
+    }
+    if (settingsOpen) closeSettings()
+    else openSettings()
+  }
+
+  function mobileActionHint(action: MobileQuickAction) {
+    if (action === 'export') return ui.exportNow
+    if (action === 'activity') return showActivityLog ? ui.activityHide : ui.activityShow
+    if (action === 'shortcuts') return ui.shortcutsHelp
+    return ui.settings
+  }
+
+  function moveMobileQuickAction(action: MobileQuickAction, dir: -1 | 1) {
+    setMobileQuickOrder((prev) => {
+      const idx = prev.indexOf(action)
+      const nextIdx = idx + dir
+      if (idx < 0 || nextIdx < 0 || nextIdx >= prev.length) return prev
+      const next = [...prev]
+      const temp = next[idx]
+      next[idx] = next[nextIdx]!
+      next[nextIdx] = temp!
+      return next
+    })
   }
 
   function beginLongPressHint(message: string) {
@@ -3708,6 +3832,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setActivitySort('latest')
     setActivityDownloadMode('filtered')
     setShowActivityLog(false)
+    setShowMobileQuickActions(true)
+    setMobileQuickOrder(['export', 'activity', 'shortcuts', 'settings'])
     setPreferredDevice('cpu')
   }
 
@@ -3842,47 +3968,20 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       </div>
       {showMobileQuickActions ? (
         <div className="mobileQuickRail" aria-label="mobile quick actions">
-          <button
-            className="mobileQuickBtn"
-            onClick={() => {
-              if (!hasSelectedAssets && pendingExportScope === 'selected') {
-                setPendingExportScope('current')
-              }
-              setExportDialogOpen(true)
-            }}
-            onTouchStart={() => beginLongPressHint(ui.exportNow)}
-            onTouchEnd={cancelLongPressHint}
-            onTouchCancel={cancelLongPressHint}
-          >
-            ⬇
-          </button>
-          <button
-            className="mobileQuickBtn"
-            onClick={() => setShowActivityLog((prev) => !prev)}
-            onTouchStart={() => beginLongPressHint(showActivityLog ? ui.activityHide : ui.activityShow)}
-            onTouchEnd={cancelLongPressHint}
-            onTouchCancel={cancelLongPressHint}
-          >
-            🧾
-          </button>
-          <button
-            className="mobileQuickBtn"
-            onClick={() => setShowShortcutsHelp((prev) => !prev)}
-            onTouchStart={() => beginLongPressHint(ui.shortcutsHelp)}
-            onTouchEnd={cancelLongPressHint}
-            onTouchCancel={cancelLongPressHint}
-          >
-            ⌨
-          </button>
-          <button
-            className="mobileQuickBtn"
-            onClick={() => (settingsOpen ? closeSettings() : openSettings())}
-            onTouchStart={() => beginLongPressHint(ui.settings)}
-            onTouchEnd={cancelLongPressHint}
-            onTouchCancel={cancelLongPressHint}
-          >
-            ⚙
-          </button>
+          {mobileQuickOrder.map((action) => (
+            <button
+              key={`mobile-${action}`}
+              className="mobileQuickBtn"
+              onClick={() => runMobileQuickAction(action)}
+              onTouchStart={() => beginLongPressHint(mobileActionHint(action))}
+              onTouchEnd={cancelLongPressHint}
+              onTouchCancel={cancelLongPressHint}
+              aria-label={mobileActionLabel(action)}
+              title={mobileActionLabel(action)}
+            >
+              {mobileActionIcon(action)}
+            </button>
+          ))}
         </div>
       ) : null}
 
@@ -3911,6 +4010,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               className="input settingsSearchInput"
               value={settingsSearch}
               onChange={(e) => setSettingsSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                const root = e.currentTarget.closest('.settingsDialog') as HTMLElement | null
+                const first = root?.querySelector<HTMLElement>('.settingsRowMatch button, .settingsRowMatch select, .settingsRowMatch input')
+                first?.focus()
+              }}
               placeholder={ui.settingsSearchPlaceholder}
               aria-label={ui.settingsSearchPlaceholder}
             />
@@ -4030,6 +4136,23 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <input type="checkbox" checked={showMobileQuickActions} onChange={(e) => setShowMobileQuickActions(e.target.checked)} />
                 <span>{ui.settingsMobileQuickActions}</span>
               </label>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' && matchSetting(ui.settingsMobileQuickOrder) ? (
+            <div className={settingRowClass(ui.settingsMobileQuickOrder)}>
+              <div className="settingsLabel">{ui.settingsMobileQuickOrder}</div>
+              <div className="mobileOrderList">
+                {mobileQuickOrder.map((action, idx) => (
+                  <div className="mobileOrderRow" key={`order-${action}`}>
+                    <span className="mobileOrderName">{mobileActionLabel(action)}</span>
+                    <div className="mobileOrderActions">
+                      <button className="btn ghost" disabled={idx === 0} onClick={() => moveMobileQuickAction(action, -1)}>{ui.settingsMoveUp}</button>
+                      <button className="btn ghost" disabled={idx === mobileQuickOrder.length - 1} onClick={() => moveMobileQuickAction(action, 1)}>{ui.settingsMoveDown}</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             ) : null}
 
@@ -5111,6 +5234,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="activityPreviewCompareWrap">
                 <img className="activityPreviewImage" src={activityPreview.snapshot.baseDataUrl} alt={ui.activityPreviewTitle} />
                 <img className="activityPreviewImage compareLayer" src={activityPreviewCurrentBase} alt={ui.activityPreviewTitle} style={{ clipPath: `inset(0 ${100 - activityPreviewCompare}% 0 0)` }} />
+                <div className="activityCompareLabels">
+                  <span>{ui.activityPreviewBefore}</span>
+                  <span>{ui.activityPreviewAfter}</span>
+                </div>
+                <div className="activityCompareHandle" style={{ left: `${activityPreviewCompare}%` }} />
               </div>
             ) : activityPreview.snapshot ? (
               <img className="activityPreviewImage" src={activityPreview.snapshot.baseDataUrl} alt={ui.activityPreviewTitle} />

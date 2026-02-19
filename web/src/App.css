@@ -1572,6 +1572,28 @@
   background: rgba(100, 210, 255, 0.06);
 }
 
+.mobileOrderList {
+  display: grid;
+  gap: 6px;
+}
+
+.mobileOrderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mobileOrderName {
+  font-size: 12px;
+  color: #dff2ff;
+}
+
+.mobileOrderActions {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .shortcutsSearchInput {
   width: 100%;
 }
@@ -1720,6 +1742,30 @@
 
 .activityPreviewCompareWrap {
   position: relative;
+}
+
+.activityCompareLabels {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  font-size: 10px;
+  color: #e8f5ff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+.activityCompareHandle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(100, 210, 255, 0.88);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  transform: translateX(-1px);
+  pointer-events: none;
 }
 
 .activityPreviewImage {
