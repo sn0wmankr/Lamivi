@@ -5803,6 +5803,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                           <img className="cropPreviewImage" src={cropPreviewDataUrl} alt={ui.cropCompareAfter} loading="lazy" decoding="async" />
                         </div>
                         <div className="cropCompareDivider" style={{ left: `${cropPreviewCompare}%` }}>
+                          <span className="cropCompareBubble">{cropPreviewCompare}%</span>
                           <span className="cropCompareThumb" />
                         </div>
                       </div>
