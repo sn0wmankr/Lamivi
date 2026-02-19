@@ -1516,6 +1516,18 @@
   margin-top: 6px;
 }
 
+.settingsSuggestRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.settingsSuggestBtn {
+  height: 28px;
+  padding: 0 10px;
+}
+
 .settingsNoMatch {
   margin: 4px 0;
 }
@@ -1644,6 +1656,41 @@
 .activityCopyItemBtn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(100, 210, 255, 0.25);
+}
+
+.activityContextMenu {
+  position: fixed;
+  z-index: 60;
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 13, 20, 0.96);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+}
+
+.menuItem {
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #ecf7ff;
+  font-size: 12px;
+  text-align: left;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.menuItem:hover:not(:disabled) {
+  border-color: rgba(100, 210, 255, 0.45);
+  background: rgba(100, 210, 255, 0.14);
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .ctrlIcon {

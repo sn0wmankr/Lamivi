@@ -586,6 +586,9 @@ const UI = {
     exportPresetWebHint: '예상 용량: 작음',
     exportPresetPrintHint: '예상 용량: 큼',
     exportPresetSlidesHint: '예상 용량: 중간',
+    exportPresetSpeedFast: '처리: 빠름',
+    exportPresetSpeedBalanced: '처리: 보통',
+    exportPresetSpeedSlow: '처리: 느림',
     cancel: '취소',
     selectedText: '선택한 텍스트',
     noSelectedText: '텍스트를 선택하면 상세 설정이 표시됩니다.',
@@ -691,6 +694,10 @@ const UI = {
     settingsTabInfo: '정보',
     settingsSearchPlaceholder: '설정 검색',
     settingsNoMatch: '검색 조건에 맞는 설정이 없습니다.',
+    settingsSuggestDevice: 'AI 엔진',
+    settingsSuggestAutosave: '자동 저장',
+    settingsSuggestDensity: 'UI 밀도',
+    settingsSuggestAnimation: '애니메이션',
     settingsLastAutoSave: '마지막 자동 저장',
     settingsNoAutoSave: '자동 저장 꺼짐',
     activityLog: '작업 로그',
@@ -698,6 +705,7 @@ const UI = {
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
     activityCopyItem: '항목 복사',
+    activityJumpItem: '이 파일로 이동',
     activityDownload: '로그 저장',
     activityDownloadFiltered: '필터만 저장',
     activityDownloadAll: '전체 저장',
@@ -888,6 +896,9 @@ const UI = {
     exportPresetWebHint: 'Estimated size: small',
     exportPresetPrintHint: 'Estimated size: large',
     exportPresetSlidesHint: 'Estimated size: medium',
+    exportPresetSpeedFast: 'Processing: fast',
+    exportPresetSpeedBalanced: 'Processing: balanced',
+    exportPresetSpeedSlow: 'Processing: slow',
     cancel: 'Cancel',
     selectedText: 'Selected text',
     noSelectedText: 'Select text to see detailed controls.',
@@ -993,6 +1004,10 @@ const UI = {
     settingsTabInfo: 'Info',
     settingsSearchPlaceholder: 'Search settings',
     settingsNoMatch: 'No settings match your search.',
+    settingsSuggestDevice: 'AI engine',
+    settingsSuggestAutosave: 'Autosave',
+    settingsSuggestDensity: 'UI density',
+    settingsSuggestAnimation: 'Animation',
     settingsLastAutoSave: 'Last autosave',
     settingsNoAutoSave: 'Autosave off',
     activityLog: 'Activity log',
@@ -1000,6 +1015,7 @@ const UI = {
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
     activityCopyItem: 'Copy item',
+    activityJumpItem: 'Jump to file',
     activityDownload: 'Save log',
     activityDownloadFiltered: 'Save filtered',
     activityDownloadAll: 'Save all',
@@ -1197,6 +1213,7 @@ function App() {
     }
   })
   const [toastLog, setToastLog] = useState<ToastLogItem[]>([])
+  const [activityMenu, setActivityMenu] = useState<{ x: number; y: number; item: ToastLogItem } | null>(null)
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>(() => {
     try {
       const saved = window.localStorage.getItem('lamivi-activity-filter')
@@ -1699,6 +1716,20 @@ function App() {
       setShortcutsCategory('all')
     }
   }, [showShortcutsHelp])
+
+  useEffect(() => {
+    if (!activityMenu) return
+    const close = () => setActivityMenu(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [activityMenu])
 
   useEffect(() => {
     if (!highlightExportFormat) return
@@ -3270,6 +3301,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     lastDirtyAt ? ui.unsavedUpdatedAt(formatTimestamp(lastDirtyAt)) : ui.unsavedBadge,
     recentDirtySummaries.length > 0 ? `${ui.unsavedRecentChanges}: ${recentDirtySummaries.join(' · ')}` : null,
   ].filter(Boolean).join('\n')
+  const settingsSuggestions = [ui.settingsSuggestDevice, ui.settingsSuggestAutosave, ui.settingsSuggestDensity, ui.settingsSuggestAnimation]
   const hasSettingsMatch = settingsQueryLower.length === 0 || (
     settingsTab === 'general'
       ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
@@ -3401,6 +3433,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       groups: parsed.groups,
       maskStrokes: [],
     }))
+  }
+
+  function openActivityMenu(e: ReactMouseEvent, item: ToastLogItem) {
+    e.preventDefault()
+    e.stopPropagation()
+    setActivityMenu({ x: e.clientX, y: e.clientY, item })
   }
 
   async function copyDiagnostics() {
@@ -3698,6 +3736,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               placeholder={ui.settingsSearchPlaceholder}
               aria-label={ui.settingsSearchPlaceholder}
             />
+            <div className="settingsSuggestRow">
+              {settingsSuggestions.map((keyword) => (
+                <button key={keyword} className="tabBtn settingsSuggestBtn" onClick={() => setSettingsSearch(keyword)}>
+                  {keyword}
+                </button>
+              ))}
+            </div>
 
             <div className="settingsLayout">
               <div className="settingsSidebar">
@@ -4818,6 +4863,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   className={`activityItem tone-${item.tone} ${recent ? 'recent' : ''} ${item.assetId ? 'jumpable' : ''}`}
                   type="button"
                   onClick={() => jumpToActivity(item)}
+                  onContextMenu={(e) => openActivityMenu(e, item)}
                 >
                   <span className="activityDot" />
                   <span className="activityText"><span className="activityKind">{activityKindLabel(item)}</span>{item.text}</span>
@@ -4847,6 +4893,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="hint">{ui.activityEmpty}</div>
             )}
           </div>
+        </div>
+      ) : null}
+      {activityMenu ? (
+        <div className="activityContextMenu" style={{ left: activityMenu.x, top: activityMenu.y }} onPointerDown={(e) => e.stopPropagation()}>
+          <button className="menuItem" onClick={() => { void copyActivityItem(activityMenu.item); setActivityMenu(null) }}>{ui.activityCopyItem}</button>
+          <button className="menuItem" disabled={!activityMenu.item.assetId} onClick={() => { jumpToActivity(activityMenu.item); setActivityMenu(null) }}>{ui.activityJumpItem}</button>
         </div>
       ) : null}
       {isFileDragOver ? (
@@ -4906,14 +4958,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <button className="btn ghost presetBtn" onClick={() => { setPendingExportFormat('jpg'); setPendingExportRatio(2); setPendingExportQuality(84) }}>
                   <span>{ui.exportPresetWeb}</span>
                   <span className="presetHint">{ui.exportPresetWebHint}</span>
+                  <span className="presetHint">{ui.exportPresetSpeedFast}</span>
                 </button>
                 <button className="btn ghost presetBtn" onClick={() => { setPendingExportFormat('png'); setPendingExportRatio(4) }}>
                   <span>{ui.exportPresetPrint}</span>
                   <span className="presetHint">{ui.exportPresetPrintHint}</span>
+                  <span className="presetHint">{ui.exportPresetSpeedSlow}</span>
                 </button>
                 <button className="btn ghost presetBtn" onClick={() => { setPendingExportFormat('pptx'); setPendingExportRatio(2) }}>
                   <span>{ui.exportPresetSlides}</span>
                   <span className="presetHint">{ui.exportPresetSlidesHint}</span>
+                  <span className="presetHint">{ui.exportPresetSpeedBalanced}</span>
                 </button>
               </div>
             </div>
