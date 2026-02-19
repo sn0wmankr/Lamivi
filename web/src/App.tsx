@@ -781,8 +781,13 @@ const UI = {
     settingsInfo: '개발자 정보',
     settingsVersion: '버전',
     settingsDockerHub: 'Docker Hub',
+    settingsGitHub: 'GitHub',
+    settingsDocs: 'Docs',
+    settingsCopyDockerHub: '링크 복사',
+    settingsCopiedDockerHub: 'Docker Hub 링크를 복사했습니다',
     settingsDeveloper: '개발자',
     settingsRepo: '저장소',
+    externalOpened: (label: string) => `${label}를 새 탭에서 열었습니다`,
     settingsCopyDiagnostics: '환경 진단 복사',
     settingsCopiedDiagnostics: '환경 진단을 복사했습니다',
     unsavedWarn: '저장되지 않은 변경사항이 있습니다.',
@@ -1115,8 +1120,13 @@ const UI = {
     settingsInfo: 'Developer info',
     settingsVersion: 'Version',
     settingsDockerHub: 'Docker Hub',
+    settingsGitHub: 'GitHub',
+    settingsDocs: 'Docs',
+    settingsCopyDockerHub: 'Copy link',
+    settingsCopiedDockerHub: 'Docker Hub link copied',
     settingsDeveloper: 'Developer',
     settingsRepo: 'Repository',
+    externalOpened: (label: string) => `Opened ${label} in a new tab`,
     settingsCopyDiagnostics: 'Copy diagnostics',
     settingsCopiedDiagnostics: 'Diagnostics copied',
     unsavedWarn: 'You have unsaved changes.',
@@ -3521,7 +3531,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsMobileQuickOrder, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
       : settingsTab === 'editing'
         ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
-        : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsDockerHub, ui.settingsRepo].some(matchSetting)
+        : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsDockerHub, ui.settingsGitHub, ui.settingsDocs, ui.settingsRepo].some(matchSetting)
   )
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
@@ -3824,6 +3834,34 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     } catch {
       setStatus(text)
     }
+  }
+
+  async function copyDockerHubLink() {
+    const text = 'https://hub.docker.com/r/sn0wmankr/lamivi'
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        ta.style.pointerEvents = 'none'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setStatus(ui.settingsCopiedDockerHub)
+    } catch {
+      setStatus(text)
+    }
+  }
+
+  function openExternalLink(url: string, label: string) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+    setStatus(ui.externalOpened(label))
   }
 
   function cancelLongPressHint() {
@@ -4397,13 +4435,26 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'info' && (matchSetting(ui.settingsInfo) || matchSetting(ui.settingsDeveloper) || matchSetting(ui.settingsDockerHub) || matchSetting(ui.settingsRepo)) ? (
+            {settingsTab === 'info' && (matchSetting(ui.settingsInfo) || matchSetting(ui.settingsDeveloper) || matchSetting(ui.settingsDockerHub) || matchSetting(ui.settingsGitHub) || matchSetting(ui.settingsDocs) || matchSetting(ui.settingsRepo)) ? (
             <div className="settingsInfo">
               <div className="settingsInfoTitle">{ui.settingsInfo}</div>
               <div className="settingsInfoRow"><strong>{ui.settingsDeveloper}</strong><span>{ui.settingsName}</span></div>
-              <div className="settingsInfoRow"><strong>{ui.settingsDockerHub}</strong><a href="https://hub.docker.com/r/sn0wmankr/lamivi" target="_blank" rel="noreferrer">hub.docker.com/r/sn0wmankr/lamivi</a></div>
-              <div className="settingsInfoRow"><strong>{ui.settingsRepo}</strong><a href="https://sn0wman.kr" target="_blank" rel="noreferrer">sn0wman.kr</a></div>
+              <div className="settingsLinkCards">
+                <button className="settingsLinkCard" onClick={() => openExternalLink('https://hub.docker.com/r/sn0wmankr/lamivi', ui.settingsDockerHub)}>
+                  <span className="settingsLinkLabel">{ui.settingsDockerHub}</span>
+                  <span className="settingsLinkUrl">hub.docker.com/r/sn0wmankr/lamivi</span>
+                </button>
+                <button className="settingsLinkCard" onClick={() => openExternalLink('https://github.com/sn0wmankr/Lamivi', ui.settingsGitHub)}>
+                  <span className="settingsLinkLabel">{ui.settingsGitHub}</span>
+                  <span className="settingsLinkUrl">github.com/sn0wmankr/Lamivi</span>
+                </button>
+                <button className="settingsLinkCard" onClick={() => openExternalLink('https://sn0wman.kr', ui.settingsDocs)}>
+                  <span className="settingsLinkLabel">{ui.settingsDocs}</span>
+                  <span className="settingsLinkUrl">sn0wman.kr</span>
+                </button>
+              </div>
               <div className="settingsInfoActions">
+                <button className="btn ghost" onClick={() => void copyDockerHubLink()}>{ui.settingsCopyDockerHub}</button>
                 <button className="btn" onClick={() => void copyDiagnostics()}>{ui.settingsCopyDiagnostics}</button>
               </div>
             </div>
