@@ -638,6 +638,8 @@ const UI = {
     previewCrop: '잘라내기 미리보기',
     cropPreviewTitle: '잘라내기 미리보기',
     cropPreviewHint: '미리보기는 저장되지 않습니다.',
+    cropPreviewSize: '크기',
+    cropPreviewArea: '면적',
     cropCompareBefore: '원본',
     cropCompareAfter: '잘라낸 결과',
     cropCompareFocusLeft: '왼쪽 보기',
@@ -1006,6 +1008,8 @@ const UI = {
     previewCrop: 'Preview crop',
     cropPreviewTitle: 'Crop preview',
     cropPreviewHint: 'Preview is not saved until apply.',
+    cropPreviewSize: 'Size',
+    cropPreviewArea: 'Area',
     cropCompareBefore: 'Before',
     cropCompareAfter: 'After crop',
     cropCompareFocusLeft: 'Focus left',
@@ -3858,6 +3862,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const canRedo = !busy && assetListHistoryFuture.length > 0
   const hasSelectedAssets = selectedAssetIds.length > 0
   const activeCropRect = active && cropRect ? normalizeCropRect(cropRect, active.width, active.height) : null
+  const cropAreaPercent = activeCropRect && active
+    ? clamp((activeCropRect.width * activeCropRect.height * 100) / Math.max(1, active.width * active.height), 0, 100)
+    : null
   const cropDockClass = tool === 'crop'
     ? cropHideDocksOnCrop
       ? 'dockPassthrough dockCropHidden'
@@ -5803,6 +5810,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         <span>{ui.cropCompareBefore}</span>
                         <span>{ui.cropCompareAfter}</span>
                       </div>
+                      {activeCropRect && cropAreaPercent !== null ? (
+                        <div className="cropPreviewMetaRow">
+                          <span className="cropMetaChip">{ui.cropPreviewSize}: {activeCropRect.width} x {activeCropRect.height}</span>
+                          <span className="cropMetaChip">{ui.cropPreviewArea}: {cropAreaPercent.toFixed(1)}%</span>
+                        </div>
+                      ) : null}
                       <div className="cropCompareQuickRow">
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(0)}>{ui.cropCompareBefore}</button>
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(25)}>{ui.cropCompareFocusLeft}</button>
