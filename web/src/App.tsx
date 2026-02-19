@@ -780,6 +780,7 @@ const UI = {
     taskCancelled: '작업을 취소했습니다',
     settingsInfo: '개발자 정보',
     settingsVersion: '버전',
+    settingsDockerHub: 'Docker Hub',
     settingsDeveloper: '개발자',
     settingsRepo: '저장소',
     settingsCopyDiagnostics: '환경 진단 복사',
@@ -1113,6 +1114,7 @@ const UI = {
     taskCancelled: 'Task cancelled',
     settingsInfo: 'Developer info',
     settingsVersion: 'Version',
+    settingsDockerHub: 'Docker Hub',
     settingsDeveloper: 'Developer',
     settingsRepo: 'Repository',
     settingsCopyDiagnostics: 'Copy diagnostics',
@@ -3519,7 +3521,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsMobileQuickOrder, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
       : settingsTab === 'editing'
         ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
-        : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsVersion, ui.settingsRepo].some(matchSetting)
+        : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsDockerHub, ui.settingsRepo].some(matchSetting)
   )
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
@@ -4395,11 +4397,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'info' && (matchSetting(ui.settingsInfo) || matchSetting(ui.settingsDeveloper) || matchSetting(ui.settingsVersion) || matchSetting(ui.settingsRepo)) ? (
+            {settingsTab === 'info' && (matchSetting(ui.settingsInfo) || matchSetting(ui.settingsDeveloper) || matchSetting(ui.settingsDockerHub) || matchSetting(ui.settingsRepo)) ? (
             <div className="settingsInfo">
               <div className="settingsInfoTitle">{ui.settingsInfo}</div>
               <div className="settingsInfoRow"><strong>{ui.settingsDeveloper}</strong><span>{ui.settingsName}</span></div>
-              <div className="settingsInfoRow"><strong>{ui.settingsVersion}</strong><span>{APP_VERSION}</span></div>
+              <div className="settingsInfoRow"><strong>{ui.settingsDockerHub}</strong><a href="https://hub.docker.com/r/sn0wmankr/lamivi" target="_blank" rel="noreferrer">hub.docker.com/r/sn0wmankr/lamivi</a></div>
               <div className="settingsInfoRow"><strong>{ui.settingsRepo}</strong><a href="https://sn0wman.kr" target="_blank" rel="noreferrer">sn0wman.kr</a></div>
               <div className="settingsInfoActions">
                 <button className="btn" onClick={() => void copyDiagnostics()}>{ui.settingsCopyDiagnostics}</button>
