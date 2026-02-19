@@ -1449,6 +1449,8 @@
 .settingsActionRow {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .shortcutsSearchInput {
@@ -1463,6 +1465,25 @@
 
 .shortcutsCategoryRow .tabBtn {
   height: 30px;
+}
+
+.shortcutsKeyBtn {
+  appearance: none;
+  cursor: pointer;
+}
+
+.shortcutsKeyBtn:hover {
+  border-color: rgba(100, 210, 255, 0.58);
+  background: rgba(100, 210, 255, 0.22);
+}
+
+.shortcutsKeyBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100, 210, 255, 0.26);
+}
+
+.formatPulse {
+  animation: format-pulse calc(760ms * var(--motion-scale)) ease;
 }
 
 .activityFilterRow .tabBtn {
@@ -2504,6 +2525,17 @@
   }
   100% {
     box-shadow: 0 0 0 8px rgba(100, 210, 255, 0);
+  }
+}
+
+@keyframes format-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(100, 210, 255, 0.45);
+    border-color: rgba(100, 210, 255, 0.82);
+  }
+  100% {
+    box-shadow: none;
+    border-color: rgba(255, 255, 255, 0.16);
   }
 }
 

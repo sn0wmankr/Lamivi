@@ -660,6 +660,9 @@ const UI = {
     settingsResetDefaults: '기본값으로 초기화',
     settingsResetConfirm: '설정을 기본값으로 초기화할까요?',
     settingsResetDone: '설정을 기본값으로 초기화했습니다',
+    settingsResetGeneral: '일반 초기화',
+    settingsResetEditing: '편집 초기화',
+    settingsResetExport: '내보내기 초기화',
     settingsShortcutTips: '단축키 툴팁 표시',
     settingsTooltipDensity: '툴팁 밀도',
     settingsTooltipSimple: '간단',
@@ -732,6 +735,7 @@ const UI = {
     shortcutsCategoryHistory: '히스토리',
     shortcutsSearchPlaceholder: '단축키 검색',
     shortcutsNoMatch: '검색 결과가 없습니다.',
+    shortcutCopied: (keyLabel: string) => `단축키 복사: ${keyLabel}`,
     shortcutsClose: '닫기',
     shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Esc 선택해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
@@ -938,6 +942,9 @@ const UI = {
     settingsResetDefaults: 'Reset to defaults',
     settingsResetConfirm: 'Reset settings to defaults?',
     settingsResetDone: 'Settings reset to defaults',
+    settingsResetGeneral: 'Reset general',
+    settingsResetEditing: 'Reset editing',
+    settingsResetExport: 'Reset export',
     settingsShortcutTips: 'Show shortcut tooltips',
     settingsTooltipDensity: 'Tooltip density',
     settingsTooltipSimple: 'Simple',
@@ -1010,6 +1017,7 @@ const UI = {
     shortcutsCategoryHistory: 'History',
     shortcutsSearchPlaceholder: 'Search shortcuts',
     shortcutsNoMatch: 'No matching shortcuts.',
+    shortcutCopied: (keyLabel: string) => `Shortcut copied: ${keyLabel}`,
     shortcutsClose: 'Close',
     shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Esc Clear selection',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
@@ -1090,6 +1098,7 @@ function App() {
   const [cudaAvailable, setCudaAvailable] = useState<boolean | null>(null)
   const [switchingDevice, setSwitchingDevice] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [highlightExportFormat, setHighlightExportFormat] = useState(false)
   const [pendingExportFormat, setPendingExportFormat] = useState<ExportKind>(() => {
     try {
       const saved = window.localStorage.getItem('lamivi-export-format')
@@ -1642,6 +1651,12 @@ function App() {
       setShortcutsCategory('all')
     }
   }, [showShortcutsHelp])
+
+  useEffect(() => {
+    if (!highlightExportFormat) return
+    const timer = window.setTimeout(() => setHighlightExportFormat(false), 1400)
+    return () => window.clearTimeout(timer)
+  }, [highlightExportFormat])
 
   useEffect(() => {
     try {
@@ -3355,10 +3370,41 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
   }
 
+  async function copyShortcutKey(keyLabel: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(keyLabel)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = keyLabel
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        ta.style.pointerEvents = 'none'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setStatus(ui.shortcutCopied(keyLabel))
+    } catch {
+      setStatus(keyLabel)
+    }
+  }
+
   function buildActivityLogText(mode: 'filtered' | 'all') {
     const source = mode === 'all' ? toastLog : filteredToastLog
     const lines = source.map((item) => `[${formatLogTimestamp(item.at)}] ${activityKindLabel(item)}: ${item.text}`)
-    return lines.length > 0 ? lines.join('\n') : ui.activityEmpty
+    const header = [
+      `Lamivi Activity Log`,
+      `app=${APP_VERSION}`,
+      `savedAt=${new Date().toISOString()}`,
+      `scope=${mode}`,
+      `activeFilter=${activityFilter}`,
+      `count=${source.length}`,
+      '',
+    ]
+    return `${header.join('\n')}${lines.length > 0 ? lines.join('\n') : ui.activityEmpty}`
   }
 
   function downloadActivityLog() {
@@ -3377,22 +3423,35 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
   function resetSettingsToDefaults() {
     if (!window.confirm(ui.settingsResetConfirm)) return
+    resetGeneralSettings()
+    resetEditingSettings()
+    resetExportSettings()
+    setStatus(ui.settingsResetDone)
+  }
+
+  function resetGeneralSettings() {
     setBrushSize(DEFAULT_BRUSH_SIZE)
     setAutoSaveSeconds(DEFAULT_AUTOSAVE_SECONDS)
     setShowGuide(true)
+    setActivityLogLimit(DEFAULT_ACTIVITY_LOG_LIMIT)
+    setActivityFilter('all')
+    setActivityDownloadMode('filtered')
+    setShowActivityLog(false)
+    setPreferredDevice('cpu')
+  }
+
+  function resetEditingSettings() {
     setShowShortcutTips(true)
     setTooltipDensity('detailed')
     setAnimationStrength('high')
     setUiDensity('default')
-    setActivityLogLimit(DEFAULT_ACTIVITY_LOG_LIMIT)
-    setActivityFilter('all')
-    setShowActivityLog(false)
-    setPreferredDevice('cpu')
+  }
+
+  function resetExportSettings() {
     setPendingExportFormat('png')
     setPendingExportRatio(2)
     setPendingExportScope('current')
     setPendingExportQuality(DEFAULT_EXPORT_QUALITY)
-    setStatus(ui.settingsResetDone)
   }
 
   async function setDeviceMode(next: 'cpu' | 'cuda') {
@@ -3465,6 +3524,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 if (!hasSelectedAssets && pendingExportScope === 'selected') {
                   setPendingExportScope('current')
                 }
+                setHighlightExportFormat(true)
                 setExportDialogOpen(true)
               }}
             >
@@ -3599,7 +3659,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'general' ? (
             <div className="settingsRow settingsActionRow">
+              <button className="btn ghost" onClick={resetGeneralSettings}>{ui.settingsResetGeneral}</button>
+              <button className="btn ghost" onClick={resetExportSettings}>{ui.settingsResetExport}</button>
               <button className="btn ghost" onClick={resetSettingsToDefaults}>{ui.settingsResetDefaults}</button>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className="settingsRow settingsActionRow">
+              <button className="btn ghost" onClick={resetEditingSettings}>{ui.settingsResetEditing}</button>
             </div>
             ) : null}
 
@@ -4649,7 +4717,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className="shortcutsTable" role="table" aria-label={ui.shortcutsHelp}>
               {filteredShortcutRows.map((row) => (
                 <div className="shortcutsRow" role="row" key={`${row.category}-${row.keyLabel}`}>
-                  <div className="shortcutsKey" role="cell">{row.keyLabel}</div>
+                  <button className="shortcutsKey shortcutsKeyBtn" role="cell" onClick={() => void copyShortcutKey(row.keyLabel)} title={row.keyLabel}>{row.keyLabel}</button>
                   <div className="shortcutsDesc" role="cell">{row.desc}</div>
                 </div>
               ))}
@@ -4668,7 +4736,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className="dialogHint">{ui.exportDialogDesc}</div>
             <div>
               <div className="label">{ui.exportFormat}</div>
-              <select className="select" value={pendingExportFormat} onChange={(e) => setPendingExportFormat(e.target.value as ExportKind)}>
+              <select className={`select ${highlightExportFormat ? 'formatPulse' : ''}`} value={pendingExportFormat} onChange={(e) => setPendingExportFormat(e.target.value as ExportKind)}>
                 <option value="png">PNG</option>
                 <option value="jpg">JPG</option>
                 <option value="webp">WEBP</option>
