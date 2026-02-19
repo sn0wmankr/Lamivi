@@ -629,6 +629,12 @@
   backdrop-filter: blur(8px);
 }
 
+.canvasZoomDock.dockPassthrough,
+.canvasHistoryDock.dockPassthrough {
+  pointer-events: none;
+  opacity: 0.42;
+}
+
 .canvasZoomDock .iconDockBtn {
   width: 30px;
   height: 30px;
