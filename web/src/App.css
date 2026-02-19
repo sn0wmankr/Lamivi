@@ -1572,6 +1572,13 @@
   background: rgba(100, 210, 255, 0.06);
 }
 
+.settingsMark {
+  background: rgba(100, 210, 255, 0.28);
+  color: #ecf8ff;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
 .mobileOrderList {
   display: grid;
   gap: 6px;
@@ -1841,6 +1848,12 @@
 .mobileQuickBtn:hover {
   border-color: rgba(100, 210, 255, 0.55);
   background: rgba(100, 210, 255, 0.16);
+}
+
+.mobileQuickBtn.pressed {
+  transform: scale(0.96);
+  border-color: rgba(100, 210, 255, 0.72);
+  background: rgba(100, 210, 255, 0.22);
 }
 
 .activityItem.jumpable {

@@ -1,4 +1,4 @@
-import { type DragEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type DragEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
 import { Circle, Image as KonvaImage, Layer, Line, Stage, Text, Group, Rect, Transformer } from 'react-konva'
 import { jsPDF } from 'jspdf'
@@ -262,6 +262,24 @@ function cloneStrokes(strokes: MaskStroke[]): MaskStroke[] {
     ...stroke,
     points: [...stroke.points],
   }))
+}
+
+function cloneTextItems(texts: TextItem[]): TextItem[] {
+  return texts.map((text) => ({ ...text }))
+}
+
+function cloneLayerGroups(groups: LayerGroup[]): LayerGroup[] {
+  return groups.map((group) => ({ ...group }))
+}
+
+function snapshotFromAsset(asset: PageAsset): PageSnapshot {
+  return {
+    width: asset.width,
+    height: asset.height,
+    baseDataUrl: asset.baseDataUrl,
+    texts: cloneTextItems(asset.texts),
+    groups: cloneLayerGroups(asset.groups),
+  }
 }
 
 function normalizeStrokes(strokes: MaskStroke[], width: number, height: number): NormalizedStroke[] {
@@ -716,6 +734,7 @@ const UI = {
     activityShow: '로그 보기',
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
+    activityShareView: '뷰 공유',
     activityCopyItem: '항목 복사',
     activityJumpItem: '이 파일로 이동',
     activityPreviewOpen: '시점 미리보기',
@@ -725,11 +744,14 @@ const UI = {
     activityPreviewCompare: '비교 슬라이더',
     activityPreviewBefore: '스냅샷',
     activityPreviewAfter: '현재',
+    activityApplySnapshot: '스냅샷 적용',
+    activityApplyCurrent: '현재 상태 복원',
     activityDownload: '로그 저장',
     activityDownloadFiltered: '필터만 저장',
     activityDownloadAll: '전체 저장',
     activityClear: '로그 비우기',
     activityCopied: '작업 로그를 복사했습니다',
+    activityShared: '현재 뷰 링크를 복사했습니다',
     activityDownloaded: (name: string) => `로그 저장 완료: ${name}`,
     activityCleared: '작업 로그를 비웠습니다',
     activityEmpty: '아직 작업 로그가 없습니다.',
@@ -1044,6 +1066,7 @@ const UI = {
     activityShow: 'Show log',
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
+    activityShareView: 'Share view',
     activityCopyItem: 'Copy item',
     activityJumpItem: 'Jump to file',
     activityPreviewOpen: 'Preview snapshot',
@@ -1053,11 +1076,14 @@ const UI = {
     activityPreviewCompare: 'Compare slider',
     activityPreviewBefore: 'Snapshot',
     activityPreviewAfter: 'Current',
+    activityApplySnapshot: 'Apply snapshot',
+    activityApplyCurrent: 'Restore current',
     activityDownload: 'Save log',
     activityDownloadFiltered: 'Save filtered',
     activityDownloadAll: 'Save all',
     activityClear: 'Clear log',
     activityCopied: 'Activity log copied',
+    activityShared: 'Current view link copied',
     activityDownloaded: (name: string) => `Log saved: ${name}`,
     activityCleared: 'Activity log cleared',
     activityEmpty: 'No activity logs yet.',
@@ -1271,6 +1297,7 @@ function App() {
     }
     return ['export', 'activity', 'shortcuts', 'settings']
   })
+  const [mobileQuickPressed, setMobileQuickPressed] = useState<MobileQuickAction | null>(null)
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -1280,7 +1307,7 @@ function App() {
   })
   const [toastLog, setToastLog] = useState<ToastLogItem[]>([])
   const [activityMenu, setActivityMenu] = useState<{ x: number; y: number; item: ToastLogItem } | null>(null)
-  const [activityPreview, setActivityPreview] = useState<{ item: ToastLogItem; snapshot: PageSnapshot | null } | null>(null)
+  const [activityPreview, setActivityPreview] = useState<{ item: ToastLogItem; snapshot: PageSnapshot | null; current: PageSnapshot | null } | null>(null)
   const [activityPreviewCompare, setActivityPreviewCompare] = useState(50)
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>(() => {
     try {
@@ -3418,6 +3445,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const settingsQueryLower = settingsSearch.trim().toLowerCase()
   const matchSetting = (label: string) => settingsQueryLower.length === 0 || label.toLowerCase().includes(settingsQueryLower)
   const settingRowClass = (label: string) => settingsQueryLower.length > 0 && matchSetting(label) ? 'settingsRow settingsRowMatch' : 'settingsRow'
+  const renderSettingLabel = (label: string): ReactNode => {
+    if (!settingsQueryLower) return label
+    const idx = label.toLowerCase().indexOf(settingsQueryLower)
+    if (idx < 0) return label
+    return (
+      <>
+        {label.slice(0, idx)}
+        <mark className="settingsMark">{label.slice(idx, idx + settingsQueryLower.length)}</mark>
+        {label.slice(idx + settingsQueryLower.length)}
+      </>
+    )
+  }
   const recentDirtySummaries = useMemo(() => {
     const seen = new Set<string>()
     const picked: string[] = []
@@ -3436,6 +3475,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   ].filter(Boolean).join('\n')
   const settingsSuggestions = [ui.settingsSuggestDevice, ui.settingsSuggestAutosave, ui.settingsSuggestDensity, ui.settingsSuggestAnimation]
   const activityPreviewCurrentBase = useMemo(() => {
+    const cached = activityPreview?.current?.baseDataUrl
+    if (cached) return cached
     const previewAssetId = activityPreview?.item.assetId
     if (!previewAssetId) return null
     const found = assets.find((asset) => asset.id === previewAssetId)
@@ -3594,8 +3635,28 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       setStatus(ui.activityPreviewUnavailable)
       return
     }
+    const currentAsset = item.assetId ? assetsRef.current.find((asset) => asset.id === item.assetId) ?? null : null
     setActivityPreviewCompare(50)
-    setActivityPreview({ item, snapshot: parsed })
+    setActivityPreview({ item, snapshot: parsed, current: currentAsset ? snapshotFromAsset(currentAsset) : null })
+  }
+
+  function applyActivityPreviewSnapshot(target: 'snapshot' | 'current') {
+    if (!activityPreview?.item.assetId) return
+    const chosen = target === 'snapshot' ? activityPreview.snapshot : activityPreview.current
+    if (!chosen) {
+      setStatus(ui.activityPreviewUnavailable)
+      return
+    }
+    updateAssetByIdWithHistory(activityPreview.item.assetId, target === 'snapshot' ? ui.activityApplySnapshot : ui.activityApplyCurrent, (asset) => ({
+      ...asset,
+      width: chosen.width,
+      height: chosen.height,
+      baseDataUrl: chosen.baseDataUrl,
+      texts: cloneTextItems(chosen.texts),
+      groups: cloneLayerGroups(chosen.groups),
+      maskStrokes: [],
+    }))
+    setActivityPreview(null)
   }
 
   function clearSettingsSearchHistory() {
@@ -3605,6 +3666,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   function removeSettingsSearchHistoryItem(keyword: string) {
     setSettingsSearchHistory((prev) => prev.filter((item) => item !== keyword))
     setStatus(ui.settingsRecentRemove(keyword))
+  }
+
+  function triggerHaptic() {
+    try {
+      if ('vibrate' in navigator) navigator.vibrate(12)
+    } catch {
+      // ignore
+    }
   }
 
   function mobileActionLabel(action: MobileQuickAction) {
@@ -3622,6 +3691,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   function runMobileQuickAction(action: MobileQuickAction) {
+    triggerHaptic()
     if (action === 'export') {
       if (!hasSelectedAssets && pendingExportScope === 'selected') {
         setPendingExportScope('current')
@@ -3670,6 +3740,29 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       setStatus(message)
       longPressTimerRef.current = null
     }, 460)
+  }
+
+  async function copyCurrentViewLink() {
+    const text = window.location.href
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        ta.style.pointerEvents = 'none'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setStatus(ui.activityShared)
+    } catch {
+      setStatus(text)
+    }
   }
 
   function cancelLongPressHint() {
@@ -3971,11 +4064,23 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           {mobileQuickOrder.map((action) => (
             <button
               key={`mobile-${action}`}
-              className="mobileQuickBtn"
-              onClick={() => runMobileQuickAction(action)}
-              onTouchStart={() => beginLongPressHint(mobileActionHint(action))}
-              onTouchEnd={cancelLongPressHint}
-              onTouchCancel={cancelLongPressHint}
+              className={`mobileQuickBtn ${mobileQuickPressed === action ? 'pressed' : ''}`}
+              onClick={() => {
+                setMobileQuickPressed(null)
+                runMobileQuickAction(action)
+              }}
+              onTouchStart={() => {
+                setMobileQuickPressed(action)
+                beginLongPressHint(mobileActionHint(action))
+              }}
+              onTouchEnd={() => {
+                setMobileQuickPressed(null)
+                cancelLongPressHint()
+              }}
+              onTouchCancel={() => {
+                setMobileQuickPressed(null)
+                cancelLongPressHint()
+              }}
               aria-label={mobileActionLabel(action)}
               title={mobileActionLabel(action)}
             >
@@ -4061,7 +4166,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             {!hasSettingsMatch ? <div className="hint settingsNoMatch">{ui.settingsNoMatch}</div> : null}
             {settingsTab === 'general' && matchSetting(ui.settingsLanguage) ? (
             <div className={settingRowClass(ui.settingsLanguage)}>
-              <div className="settingsLabel">{ui.settingsLanguage}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsLanguage)}</div>
               <select className="langSelect settingsLangSelect" value={locale} onChange={(e) => setLocale(e.target.value as Locale)} aria-label={ui.language}>
                 {LANGUAGE_OPTIONS.map((option) => (
                   <option key={option.code} value={option.code}>{option.label}</option>
@@ -4072,7 +4177,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'general' && matchSetting(ui.settingsAiRestoreDefault) ? (
             <div className={settingRowClass(ui.settingsAiRestoreDefault)}>
-              <div className="settingsLabel">{ui.settingsAiRestoreDefault}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsAiRestoreDefault)}</div>
               <select className="langSelect settingsLangSelect" value={preferredDevice} onChange={(e) => void setDeviceMode(e.target.value as 'cpu' | 'cuda')}>
                 <option value="cpu">{ui.aiSetCpu} ({ui.available})</option>
                 <option value="cuda" disabled={!gpuSelectable}>{ui.aiSetGpu} ({gpuSelectable ? ui.available : ui.unavailable})</option>
@@ -4082,7 +4187,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'editing' && matchSetting(ui.settingsBrushDefault) ? (
             <div className={settingRowClass(ui.settingsBrushDefault)}>
-              <div className="settingsLabel">{ui.settingsBrushDefault}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsBrushDefault)}</div>
               <div className="settingsInline">
                 <input
                   className="input settingsNumberInput"
@@ -4107,7 +4212,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'general' && matchSetting(ui.settingsAutoSave) ? (
             <div className={settingRowClass(ui.settingsAutoSave)}>
-              <div className="settingsLabel">{ui.settingsAutoSave}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsAutoSave)}</div>
               <select className="langSelect settingsLangSelect" value={String(autoSaveSeconds)} onChange={(e) => setAutoSaveSeconds(clamp(Number(e.target.value), 0, 300))}>
                 <option value="0">{ui.settingsAutoSaveOff}</option>
                 <option value="10">10s</option>
@@ -4121,7 +4226,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'general' && matchSetting(ui.settingsActivityLogLimit) ? (
             <div className={settingRowClass(ui.settingsActivityLogLimit)}>
-              <div className="settingsLabel">{ui.settingsActivityLogLimit}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsActivityLogLimit)}</div>
               <select className="langSelect settingsLangSelect" value={String(activityLogLimit)} onChange={(e) => setActivityLogLimit(clamp(Number(e.target.value), 5, 20))}>
                 <option value="5">5</option>
                 <option value="10">10</option>
@@ -4134,14 +4239,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className={settingRowClass(ui.settingsMobileQuickActions)}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={showMobileQuickActions} onChange={(e) => setShowMobileQuickActions(e.target.checked)} />
-                <span>{ui.settingsMobileQuickActions}</span>
+                <span>{renderSettingLabel(ui.settingsMobileQuickActions)}</span>
               </label>
             </div>
             ) : null}
 
             {settingsTab === 'general' && matchSetting(ui.settingsMobileQuickOrder) ? (
             <div className={settingRowClass(ui.settingsMobileQuickOrder)}>
-              <div className="settingsLabel">{ui.settingsMobileQuickOrder}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsMobileQuickOrder)}</div>
               <div className="mobileOrderList">
                 {mobileQuickOrder.map((action, idx) => (
                   <div className="mobileOrderRow" key={`order-${action}`}>
@@ -4174,7 +4279,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className={settingRowClass(ui.settingsGuide)}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} />
-                <span>{ui.settingsGuide}</span>
+                <span>{renderSettingLabel(ui.settingsGuide)}</span>
               </label>
             </div>
             ) : null}
@@ -4183,14 +4288,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className={settingRowClass(ui.settingsShortcutTips)}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={showShortcutTips} onChange={(e) => setShowShortcutTips(e.target.checked)} />
-                <span>{ui.settingsShortcutTips}</span>
+                <span>{renderSettingLabel(ui.settingsShortcutTips)}</span>
               </label>
             </div>
             ) : null}
 
             {settingsTab === 'editing' && matchSetting(ui.settingsTooltipDensity) ? (
             <div className={settingRowClass(ui.settingsTooltipDensity)}>
-              <div className="settingsLabel">{ui.settingsTooltipDensity}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsTooltipDensity)}</div>
               <select className="langSelect settingsLangSelect" value={tooltipDensity} onChange={(e) => setTooltipDensity(e.target.value as TooltipDensity)}>
                 <option value="simple">{ui.settingsTooltipSimple}</option>
                 <option value="detailed">{ui.settingsTooltipDetailed}</option>
@@ -4200,7 +4305,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'editing' && matchSetting(ui.settingsAnimationStrength) ? (
             <div className={settingRowClass(ui.settingsAnimationStrength)}>
-              <div className="settingsLabel">{ui.settingsAnimationStrength}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsAnimationStrength)}</div>
               <select className="langSelect settingsLangSelect" value={animationStrength} onChange={(e) => setAnimationStrength(e.target.value as AnimationStrength)}>
                 <option value="low">{ui.settingsAnimationLow}</option>
                 <option value="default">{ui.settingsAnimationDefault}</option>
@@ -4211,7 +4316,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'editing' && matchSetting(ui.settingsUiDensity) ? (
             <div className={settingRowClass(ui.settingsUiDensity)}>
-              <div className="settingsLabel">{ui.settingsUiDensity}</div>
+              <div className="settingsLabel">{renderSettingLabel(ui.settingsUiDensity)}</div>
               <select className="langSelect settingsLangSelect" value={uiDensity} onChange={(e) => setUiDensity(e.target.value as 'default' | 'compact')}>
                 <option value="default">{ui.settingsDensityDefault}</option>
                 <option value="compact">{ui.settingsDensityCompact}</option>
@@ -5159,6 +5264,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="all">{ui.activityDownloadAll}</option>
               </select>
               <button className="btn" onClick={() => void copyActivityLog()} disabled={filteredToastLog.length === 0}>{ui.activityCopy}</button>
+              <button className="btn" onClick={() => void copyCurrentViewLink()}>{ui.activityShareView}</button>
               <button className="btn" onClick={downloadActivityLog} disabled={activityDownloadMode === 'all' ? toastLog.length === 0 : filteredToastLog.length === 0}>{ui.activityDownload}</button>
               <button className="btn" onClick={clearActivityLog} disabled={toastLog.length === 0}>{ui.activityClear}</button>
             </div>
@@ -5253,6 +5359,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             ) : null}
             <div className="hint">[{formatLogTimestamp(activityPreview.item.at)}] {activityKindLabel(activityPreview.item)}: {activityPreview.item.text}</div>
             <div className="dialogActions">
+              <button className="btn" disabled={!activityPreview.snapshot || !activityPreview.item.assetId} onClick={() => applyActivityPreviewSnapshot('snapshot')}>{ui.activityApplySnapshot}</button>
+              <button className="btn" disabled={!activityPreview.current || !activityPreview.item.assetId} onClick={() => applyActivityPreviewSnapshot('current')}>{ui.activityApplyCurrent}</button>
               <button className="btn" onClick={() => setActivityPreview(null)}>{ui.activityPreviewClose}</button>
             </div>
           </div>
