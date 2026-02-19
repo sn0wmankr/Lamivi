@@ -2846,6 +2846,11 @@
   cursor: grabbing;
 }
 
+.cropCompareFrame:focus-visible {
+  outline: 2px solid rgba(100, 210, 255, 0.9);
+  outline-offset: 2px;
+}
+
 .cropPreviewImage {
   width: 100%;
   display: block;

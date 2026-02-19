@@ -644,6 +644,7 @@ const UI = {
     cropCompareFocusCenter: '중앙 보기',
     cropCompareFocusRight: '오른쪽 보기',
     cropCompareReset: '비교 초기화',
+    cropCompareControlHint: '비교 프레임에서 드래그/휠/방향키/Home/End 사용',
     cropPreset: '비율 프리셋',
     cropPresetFull: '전체',
     cropPresetFree: '자유',
@@ -1009,6 +1010,7 @@ const UI = {
     cropCompareFocusCenter: 'Focus center',
     cropCompareFocusRight: 'Focus right',
     cropCompareReset: 'Reset compare',
+    cropCompareControlHint: 'Use drag/wheel/arrow/Home/End on compare frame',
     cropPreset: 'Ratio preset',
     cropPresetFull: 'Full',
     cropPresetFree: 'Free',
@@ -2631,6 +2633,25 @@ function App() {
 
   function adjustCropPreviewCompare(delta: number) {
     setCropPreviewCompare((prev) => clamp(prev + delta, 0, 100))
+  }
+
+  function onCropCompareWheel(event: React.WheelEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const delta = event.deltaY > 0 ? -2 : 2
+    adjustCropPreviewCompare(event.shiftKey ? delta * 3 : delta)
+  }
+
+  function onCropCompareKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const key = event.key
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      event.preventDefault()
+      adjustCropPreviewCompare((key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 10 : 3))
+      return
+    }
+    if (key === 'Home' || key === 'End') {
+      event.preventDefault()
+      setCropPreviewCompare(key === 'Home' ? 0 : 100)
+    }
   }
 
   function clearCropSelection(nextStatus?: string) {
@@ -5752,7 +5773,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         ref={cropCompareFrameRef}
                         className={`cropCompareFrame ${cropCompareDragging ? 'dragging' : ''}`}
                         aria-label={ui.cropPreviewTitle}
+                        role="slider"
+                        tabIndex={0}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={cropPreviewCompare}
                         onPointerDown={onCropComparePointerDown}
+                        onWheel={onCropCompareWheel}
+                        onKeyDown={onCropCompareKeyDown}
                       >
                         <img className="cropPreviewImage" src={active?.baseDataUrl} alt={ui.cropCompareBefore} loading="lazy" decoding="async" />
                         <div className="cropCompareOverlay" style={{ width: `${cropPreviewCompare}%` }}>
@@ -5786,6 +5814,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         aria-label={ui.cropPreviewTitle}
                       />
                       <div className="hint">{ui.cropPreviewHint}</div>
+                      <div className="hint">{ui.cropCompareControlHint}</div>
                     </div>
                   ) : null}
                 </>
