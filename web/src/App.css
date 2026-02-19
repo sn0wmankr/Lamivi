@@ -2815,9 +2815,13 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .cropCompareInput {
+    grid-column: span 2;
+  }
+
   .cropCompareValue {
-    grid-column: 1 / -1;
-    text-align: center;
+    grid-column: span 1;
+    text-align: right;
   }
 }
 
@@ -2908,9 +2912,14 @@
 
 .cropCompareQuickRow {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) 72px auto;
   gap: 6px;
   align-items: center;
+}
+
+.cropCompareInput {
+  text-align: right;
+  padding-right: 8px;
 }
 
 .cropCompareValue {

@@ -644,7 +644,9 @@ const UI = {
     cropCompareFocusCenter: '중앙 보기',
     cropCompareFocusRight: '오른쪽 보기',
     cropCompareReset: '비교 초기화',
+    cropComparePercent: '비교 비율',
     cropCompareControlHint: '비교 프레임에서 드래그/휠/방향키/Home/End 사용',
+    cropCompareDoubleClickHint: '더블클릭으로 55%로 초기화',
     cropPreset: '비율 프리셋',
     cropPresetFull: '전체',
     cropPresetFree: '자유',
@@ -1010,7 +1012,9 @@ const UI = {
     cropCompareFocusCenter: 'Focus center',
     cropCompareFocusRight: 'Focus right',
     cropCompareReset: 'Reset compare',
+    cropComparePercent: 'Compare ratio',
     cropCompareControlHint: 'Use drag/wheel/arrow/Home/End on compare frame',
+    cropCompareDoubleClickHint: 'Double click resets to 55%',
     cropPreset: 'Ratio preset',
     cropPresetFull: 'Full',
     cropPresetFree: 'Free',
@@ -2629,6 +2633,10 @@ function App() {
     const ratio = clamp(((event.clientX - box.left) / Math.max(1, box.width)) * 100, 0, 100)
     setCropPreviewCompare(Math.round(ratio))
     setCropCompareDragging(true)
+  }
+
+  function onCropCompareDoubleClick() {
+    setCropPreviewCompare(55)
   }
 
   function adjustCropPreviewCompare(delta: number) {
@@ -5779,6 +5787,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         aria-valuemax={100}
                         aria-valuenow={cropPreviewCompare}
                         onPointerDown={onCropComparePointerDown}
+                        onDoubleClick={onCropCompareDoubleClick}
                         onWheel={onCropCompareWheel}
                         onKeyDown={onCropCompareKeyDown}
                       >
@@ -5801,6 +5810,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(75)}>{ui.cropCompareFocusRight}</button>
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(100)}>{ui.cropCompareAfter}</button>
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(55)}>{ui.cropCompareReset}</button>
+                        <input
+                          className="input cropCompareInput"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={cropPreviewCompare}
+                          onChange={(e) => setCropPreviewCompare(clamp(Math.round(Number(e.target.value) || 0), 0, 100))}
+                          aria-label={ui.cropComparePercent}
+                        />
                         <span className="cropCompareValue">{cropPreviewCompare}%</span>
                       </div>
                       <input
@@ -5814,7 +5833,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         aria-label={ui.cropPreviewTitle}
                       />
                       <div className="hint">{ui.cropPreviewHint}</div>
-                      <div className="hint">{ui.cropCompareControlHint}</div>
+                      <div className="hint">{ui.cropCompareControlHint} · {ui.cropCompareDoubleClickHint}</div>
                     </div>
                   ) : null}
                 </>
