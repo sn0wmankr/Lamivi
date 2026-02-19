@@ -1520,6 +1520,13 @@
   margin: 4px 0;
 }
 
+.settingsRowMatch {
+  border: 1px solid rgba(100, 210, 255, 0.26);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(100, 210, 255, 0.06);
+}
+
 .shortcutsSearchInput {
   width: 100%;
 }
@@ -1576,6 +1583,18 @@
   gap: 6px;
 }
 
+.presetBtn {
+  min-height: 44px;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+}
+
+.presetHint {
+  font-size: 10px;
+  color: var(--faint);
+}
+
 .activityFilterRow .tabBtn {
   height: 28px;
 }
@@ -1590,7 +1609,7 @@
 
 .activityItem {
   display: grid;
-  grid-template-columns: 9px 1fr auto;
+  grid-template-columns: 9px 1fr auto auto;
   gap: 8px;
   align-items: center;
   border-radius: 10px;
@@ -1601,6 +1620,38 @@
   appearance: none;
   text-align: left;
   cursor: default;
+}
+
+.activityCopyItemBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dff2ff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.activityCopyItemBtn:hover {
+  border-color: rgba(100, 210, 255, 0.5);
+  background: rgba(100, 210, 255, 0.16);
+}
+
+.activityCopyItemBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100, 210, 255, 0.25);
+}
+
+.ctrlIcon {
+  font-size: 12px;
+}
+
+.ctrlLabel {
+  white-space: nowrap;
 }
 
 .activityItem.jumpable {
@@ -2728,6 +2779,16 @@
   .rightControls {
     width: 100%;
     justify-content: flex-end;
+  }
+  .activityBtn {
+    min-width: 36px;
+    padding: 0 10px;
+  }
+  .activityBtn .ctrlLabel {
+    display: none;
+  }
+  .deviceDetailText {
+    display: none;
   }
   .activityPanel {
     top: 52px;
