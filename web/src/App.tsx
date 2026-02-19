@@ -567,6 +567,11 @@ const UI = {
     exportDialogTitle: '내보내기 설정',
     exportDialogDesc: '형식과 품질을 선택하세요.',
     exportFormat: '형식',
+    exportFormatHintPng: 'PNG · 무손실 · 용량 큼',
+    exportFormatHintJpg: 'JPG · 작은 용량 · 투명 배경 미지원',
+    exportFormatHintWebp: 'WEBP · 고효율 압축 · 최신 브라우저 권장',
+    exportFormatHintPdf: 'PDF · 문서 전달용 · 다중 페이지',
+    exportFormatHintPptx: 'PPTX · 슬라이드 편집용 · 텍스트 보존',
     exportImageQuality: '이미지 품질',
     exportScope: '저장 범위',
     exportScopeCurrent: '현재 파일',
@@ -696,6 +701,8 @@ const UI = {
     activityFilterError: '오류',
     activityFilterSuccess: '완료',
     activityFilterWorking: '진행',
+    activitySortLatest: '최신순',
+    activitySortOldest: '오래된순',
     activityKindAi: 'AI',
     activityKindExport: '내보내기',
     activityKindText: '텍스트',
@@ -849,6 +856,11 @@ const UI = {
     exportDialogTitle: 'Export settings',
     exportDialogDesc: 'Choose format and quality.',
     exportFormat: 'Format',
+    exportFormatHintPng: 'PNG · lossless · larger size',
+    exportFormatHintJpg: 'JPG · smaller size · no transparency',
+    exportFormatHintWebp: 'WEBP · high efficiency · modern browsers',
+    exportFormatHintPdf: 'PDF · share-ready document · multipage',
+    exportFormatHintPptx: 'PPTX · slide editing · keeps text layers',
     exportImageQuality: 'Image quality',
     exportScope: 'Save scope',
     exportScopeCurrent: 'Current file',
@@ -978,6 +990,8 @@ const UI = {
     activityFilterError: 'Error',
     activityFilterSuccess: 'Done',
     activityFilterWorking: 'Working',
+    activitySortLatest: 'Latest first',
+    activitySortOldest: 'Oldest first',
     activityKindAi: 'AI',
     activityKindExport: 'Export',
     activityKindText: 'Text',
@@ -1170,6 +1184,13 @@ function App() {
       return window.localStorage.getItem('lamivi-activity-download-mode') === 'all' ? 'all' : 'filtered'
     } catch {
       return 'filtered'
+    }
+  })
+  const [activitySort, setActivitySort] = useState<'latest' | 'oldest'>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-activity-sort') === 'oldest' ? 'oldest' : 'latest'
+    } catch {
+      return 'latest'
     }
   })
   const [activityLogLimit, setActivityLogLimit] = useState<number>(() => {
@@ -1681,6 +1702,14 @@ function App() {
       // ignore
     }
   }, [activityDownloadMode])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-activity-sort', activitySort)
+    } catch {
+      // ignore
+    }
+  }, [activitySort])
 
   useEffect(() => {
     try {
@@ -3136,6 +3165,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (activityFilter === 'all') return toastLog
     return toastLog.filter((item) => item.tone === activityFilter)
   }, [activityFilter, toastLog])
+  const orderedToastLog = useMemo(() => {
+    if (activitySort === 'latest') return filteredToastLog
+    return [...filteredToastLog].reverse()
+  }, [activitySort, filteredToastLog])
   const textQuickBarPos = useMemo(() => {
     if (!selectedText || tool !== 'text' || !!editingTextId) return null
     const x = fit.ox + selectedText.x * fit.scale + quickBarOffset.x
@@ -3182,6 +3215,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const filteredShortcutRows = !shortcutQueryLower
     ? categorizedShortcutRows
     : categorizedShortcutRows.filter((row) => row.keyLabel.toLowerCase().includes(shortcutQueryLower) || row.desc.toLowerCase().includes(shortcutQueryLower))
+  const selectedExportFormatHint = pendingExportFormat === 'png'
+    ? ui.exportFormatHintPng
+    : pendingExportFormat === 'jpg'
+      ? ui.exportFormatHintJpg
+      : pendingExportFormat === 'webp'
+        ? ui.exportFormatHintWebp
+        : pendingExportFormat === 'pdf'
+          ? ui.exportFormatHintPdf
+          : ui.exportFormatHintPptx
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -3435,6 +3477,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setShowGuide(true)
     setActivityLogLimit(DEFAULT_ACTIVITY_LOG_LIMIT)
     setActivityFilter('all')
+    setActivitySort('latest')
     setActivityDownloadMode('filtered')
     setShowActivityLog(false)
     setPreferredDevice('cpu')
@@ -3517,7 +3560,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           </div>
           {hasUnsavedChanges ? (
             <button
-              className="unsavedBadge"
+              className={`unsavedBadge ${dirtyChangeCount >= 10 ? 'tierHigh' : dirtyChangeCount >= 3 ? 'tierWarn' : 'tierLow'}`}
               type="button"
               title={lastDirtyAt ? ui.unsavedUpdatedAt(formatTimestamp(lastDirtyAt)) : ui.unsavedBadge}
               onClick={() => {
@@ -3574,13 +3617,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="settingsSidebar">
                 <div className="settingsTabs">
                   <button className={`settingsTab ${settingsTab === 'general' ? 'active' : ''}`} onClick={() => setSettingsTab('general')}>
-                    {ui.settingsTabGeneral}
+                    <span className="settingsTabIcon" aria-hidden="true">⚙</span>{ui.settingsTabGeneral}
                   </button>
                   <button className={`settingsTab ${settingsTab === 'editing' ? 'active' : ''}`} onClick={() => setSettingsTab('editing')}>
-                    {ui.settingsTabEditing}
+                    <span className="settingsTabIcon" aria-hidden="true">✎</span>{ui.settingsTabEditing}
                   </button>
                   <button className={`settingsTab ${settingsTab === 'info' ? 'active' : ''}`} onClick={() => setSettingsTab('info')}>
-                    {ui.settingsTabInfo}
+                    <span className="settingsTabIcon" aria-hidden="true">ℹ</span>{ui.settingsTabInfo}
                   </button>
                 </div>
               </div>
@@ -4670,8 +4713,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button className={`tabBtn ${activityFilter === 'success' ? 'active' : ''}`} onClick={() => setActivityFilter('success')}>{ui.activityFilterSuccess}</button>
             <button className={`tabBtn ${activityFilter === 'working' ? 'active' : ''}`} onClick={() => setActivityFilter('working')}>{ui.activityFilterWorking}</button>
           </div>
+          <div className="activitySortRow">
+            <button className={`tabBtn ${activitySort === 'latest' ? 'active' : ''}`} onClick={() => setActivitySort('latest')}>{ui.activitySortLatest}</button>
+            <button className={`tabBtn ${activitySort === 'oldest' ? 'active' : ''}`} onClick={() => setActivitySort('oldest')}>{ui.activitySortOldest}</button>
+          </div>
           <div className="activityPanelBody">
-            {filteredToastLog.length > 0 ? filteredToastLog.map((item) => {
+            {orderedToastLog.length > 0 ? orderedToastLog.map((item) => {
               const recent = activityNow - item.at <= 30_000
               return (
                 <button
@@ -4743,6 +4790,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="pdf">PDF</option>
                 <option value="pptx">PPTX</option>
               </select>
+              <div className="formatHintBadge">{selectedExportFormatHint}</div>
             </div>
             <div>
               <div className="label">{ui.exportScope}</div>

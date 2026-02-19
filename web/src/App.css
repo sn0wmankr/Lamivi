@@ -1420,6 +1420,13 @@
   padding: 8px 10px 0;
 }
 
+.activitySortRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px 10px 0;
+}
+
 .unsavedBadge {
   appearance: none;
   display: inline-flex;
@@ -1439,6 +1446,23 @@
 
 .unsavedBadge:hover {
   background: rgba(255, 174, 66, 0.22);
+}
+
+.unsavedBadge.tierLow {
+  border-color: rgba(255, 174, 66, 0.42);
+  background: rgba(255, 174, 66, 0.15);
+}
+
+.unsavedBadge.tierWarn {
+  border-color: rgba(255, 156, 80, 0.58);
+  background: rgba(255, 156, 80, 0.2);
+  color: #ffe0c0;
+}
+
+.unsavedBadge.tierHigh {
+  border-color: rgba(255, 124, 124, 0.62);
+  background: rgba(255, 124, 124, 0.22);
+  color: #ffd2d2;
 }
 
 .unsavedBadge:focus-visible {
@@ -1467,6 +1491,12 @@
   height: 30px;
 }
 
+.settingsTabIcon {
+  margin-right: 6px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
 .shortcutsKeyBtn {
   appearance: none;
   cursor: pointer;
@@ -1484,6 +1514,16 @@
 
 .formatPulse {
   animation: format-pulse calc(760ms * var(--motion-scale)) ease;
+}
+
+.formatHintBadge {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(100, 210, 255, 0.28);
+  background: rgba(100, 210, 255, 0.1);
+  color: #d8f1ff;
+  font-size: 11px;
 }
 
 .activityFilterRow .tabBtn {
@@ -2673,6 +2713,9 @@
     grid-column: 1 / -1;
   }
   .activityFilterRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .activitySortRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .shortcutsCategoryRow {
