@@ -643,6 +643,7 @@ const UI = {
     cropCompareFocusLeft: '왼쪽 보기',
     cropCompareFocusCenter: '중앙 보기',
     cropCompareFocusRight: '오른쪽 보기',
+    cropCompareReset: '비교 초기화',
     cropPreset: '비율 프리셋',
     cropPresetFull: '전체',
     cropPresetFree: '자유',
@@ -660,7 +661,7 @@ const UI = {
     cropShrinkHeight: '높이 줄이기',
     cropGrowHeight: '높이 늘리기',
     cancelCrop: '영역 취소',
-    cropHint: '드래그 또는 수치 입력 · Enter 적용 · P 미리보기 · 0 전체영역 · Esc 취소 · 방향키 이동(Shift 가속) · Alt+방향키 크기 조절 · [/] 비교 이동',
+    cropHint: '드래그 또는 수치 입력 · Enter 적용 · P 미리보기 · 0 전체영역 · Esc 취소 · 방향키 이동(Shift 가속) · Alt+방향키 크기 조절 · [/] 비교 이동 · 1/2/3/R 비교 프리셋',
     cropDone: '잘라내기를 적용했습니다',
     macroCount: '반복 횟수',
     macroRunAll: '전체 파일 적용',
@@ -844,7 +845,7 @@ const UI = {
     shortcutsNoMatch: '검색 결과가 없습니다.',
     shortcutCopied: (keyLabel: string) => `단축키 복사: ${keyLabel}`,
     shortcutsClose: '닫기',
-    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · 0 전체영역 · 방향키 이동 · Alt+방향키 크기조절 · Esc 선택/자르기 해제',
+    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · 0 전체영역 · 방향키 이동 · Alt+방향키 크기조절 · [/] 비교 이동 · 1/2/3/R 비교 프리셋 · Esc 선택/자르기 해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `전체 파일 ${count}개에 적용할까요?`,
     macroConfirmSelected: (count: number) => `선택 파일 ${count}개에 적용할까요?`,
@@ -1007,6 +1008,7 @@ const UI = {
     cropCompareFocusLeft: 'Focus left',
     cropCompareFocusCenter: 'Focus center',
     cropCompareFocusRight: 'Focus right',
+    cropCompareReset: 'Reset compare',
     cropPreset: 'Ratio preset',
     cropPresetFull: 'Full',
     cropPresetFree: 'Free',
@@ -1024,7 +1026,7 @@ const UI = {
     cropShrinkHeight: 'Shrink height',
     cropGrowHeight: 'Grow height',
     cancelCrop: 'Clear area',
-    cropHint: 'Drag or type values · Enter apply · P preview · 0 full frame · Esc clear · Arrows move (Shift faster) · Alt+arrows resize · [/] compare shift',
+    cropHint: 'Drag or type values · Enter apply · P preview · 0 full frame · Esc clear · Arrows move (Shift faster) · Alt+arrows resize · [/] compare shift · 1/2/3/R compare presets',
     cropDone: 'Crop applied',
     macroCount: 'Repeat count',
     macroRunAll: 'Apply to all files',
@@ -1208,7 +1210,7 @@ const UI = {
     shortcutsNoMatch: 'No matching shortcuts.',
     shortcutCopied: (keyLabel: string) => `Shortcut copied: ${keyLabel}`,
     shortcutsClose: 'Close',
-    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · 0 Full frame · Arrows move · Alt+arrows resize · Esc Clear selection/crop',
+    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · 0 Full frame · Arrows move · Alt+arrows resize · [/] Compare shift · 1/2/3/R Compare presets · Esc Clear selection/crop',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `Apply to all ${count} files?`,
     macroConfirmSelected: (count: number) => `Apply to ${count} selected files?`,
@@ -2287,6 +2289,14 @@ function App() {
           e.preventDefault()
           const delta = key === '[' ? -(e.shiftKey ? 10 : 2) : (e.shiftKey ? 10 : 2)
           adjustCropPreviewCompare(delta)
+          return
+        }
+        if (cropPreviewDataUrl && (key === '1' || key === '2' || key === '3' || key === 'r')) {
+          e.preventDefault()
+          if (key === '1') setCropPreviewCompare(25)
+          else if (key === '2') setCropPreviewCompare(50)
+          else if (key === '3') setCropPreviewCompare(75)
+          else setCropPreviewCompare(55)
           return
         }
 
@@ -5749,6 +5759,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(25)}>{ui.cropCompareFocusLeft}</button>
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(50)}>{ui.cropCompareFocusCenter}</button>
                         <button className="btn ghost" onClick={() => setCropPreviewCompare(75)}>{ui.cropCompareFocusRight}</button>
+                        <button className="btn ghost" onClick={() => setCropPreviewCompare(55)}>{ui.cropCompareReset}</button>
                         <span className="cropCompareValue">{cropPreviewCompare}%</span>
                       </div>
                       <input
