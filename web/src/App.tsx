@@ -638,6 +638,8 @@ const UI = {
     previewCrop: '잘라내기 미리보기',
     cropPreviewTitle: '잘라내기 미리보기',
     cropPreviewHint: '미리보기는 저장되지 않습니다.',
+    cropCompareBefore: '원본',
+    cropCompareAfter: '잘라낸 결과',
     cropPreset: '비율 프리셋',
     cropPresetFull: '전체',
     cropPresetFree: '자유',
@@ -997,6 +999,8 @@ const UI = {
     previewCrop: 'Preview crop',
     cropPreviewTitle: 'Crop preview',
     cropPreviewHint: 'Preview is not saved until apply.',
+    cropCompareBefore: 'Before',
+    cropCompareAfter: 'After crop',
     cropPreset: 'Ratio preset',
     cropPresetFull: 'Full',
     cropPresetFree: 'Free',
@@ -1484,6 +1488,7 @@ function App() {
   const [cropRect, setCropRect] = useState<CropRect | null>(null)
   const [cropPreset, setCropPreset] = useState<CropPreset>('free')
   const [cropPreviewDataUrl, setCropPreviewDataUrl] = useState<string | null>(null)
+  const [cropPreviewCompare, setCropPreviewCompare] = useState(55)
   const [cropHoverHandle, setCropHoverHandle] = useState<CropHandle | null>(null)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
@@ -2563,6 +2568,7 @@ function App() {
     setCropRect(null)
     setCropPreset('free')
     setCropPreviewDataUrl(null)
+    setCropPreviewCompare(55)
     setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
@@ -2651,6 +2657,7 @@ function App() {
         rect.height,
       )
       setCropPreviewDataUrl(canvas.toDataURL('image/png'))
+      setCropPreviewCompare(55)
       setStatus(ui.cropPreviewTitle)
     } catch (e) {
       setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
@@ -5668,10 +5675,30 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                     <button className="btn" disabled={!activeCropRect} onClick={() => clearCropSelection(ui.cancelCrop)}>{ui.cancelCrop}</button>
                   </div>
                   <div className="hint">{ui.cropHint}</div>
-                  {cropPreviewDataUrl ? (
+                  {cropPreviewDataUrl && active ? (
                     <div className="cropPreviewCard">
                       <div className="label">{ui.cropPreviewTitle}</div>
-                      <img className="cropPreviewImage" src={cropPreviewDataUrl} alt={ui.cropPreviewTitle} loading="lazy" decoding="async" />
+                      <div className="cropCompareFrame" aria-label={ui.cropPreviewTitle}>
+                        <img className="cropPreviewImage" src={active?.baseDataUrl} alt={ui.cropCompareBefore} loading="lazy" decoding="async" />
+                        <div className="cropCompareOverlay" style={{ width: `${cropPreviewCompare}%` }}>
+                          <img className="cropPreviewImage" src={cropPreviewDataUrl} alt={ui.cropCompareAfter} loading="lazy" decoding="async" />
+                        </div>
+                        <div className="cropCompareDivider" style={{ left: `${cropPreviewCompare}%` }} />
+                      </div>
+                      <div className="cropCompareLabels">
+                        <span>{ui.cropCompareBefore}</span>
+                        <span>{ui.cropCompareAfter}</span>
+                      </div>
+                      <input
+                        className="cropCompareSlider"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={cropPreviewCompare}
+                        onChange={(e) => setCropPreviewCompare(Number(e.target.value))}
+                        aria-label={ui.cropPreviewTitle}
+                      />
                       <div className="hint">{ui.cropPreviewHint}</div>
                     </div>
                   ) : null}
