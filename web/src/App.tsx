@@ -58,6 +58,7 @@ type TooltipDensity = 'simple' | 'detailed'
 type AnimationStrength = 'low' | 'default' | 'high'
 type ShortcutCategory = 'tools' | 'selection' | 'history'
 type MobileQuickAction = 'export' | 'activity' | 'shortcuts' | 'settings'
+type CropHandle = 'nw' | 'ne' | 'sw' | 'se'
 
 type ToastLogItem = {
   id: string
@@ -633,8 +634,11 @@ const UI = {
     cropWidth: '너비',
     cropHeight: '높이',
     applyCrop: '잘라내기 적용',
+    previewCrop: '잘라내기 미리보기',
+    cropPreviewTitle: '잘라내기 미리보기',
+    cropPreviewHint: '미리보기는 저장되지 않습니다.',
     cancelCrop: '영역 취소',
-    cropHint: '드래그로 영역을 지정하거나 수치를 입력하세요.',
+    cropHint: '드래그로 영역을 지정하거나 수치를 입력하세요. Enter 적용 · P 미리보기 · Esc 취소',
     cropDone: '잘라내기를 적용했습니다',
     macroCount: '반복 횟수',
     macroRunAll: '전체 파일 적용',
@@ -694,6 +698,7 @@ const UI = {
     settingsBrushDefault: '기본 브러시 크기',
     settingsAutoSave: '자동 저장 주기(초)',
     settingsActivityLogLimit: '작업 로그 표시 개수',
+    settingsCropHideDocks: '잘라내기 중 하단 도크 숨김',
     settingsResetDefaults: '기본값으로 초기화',
     settingsResetConfirm: '설정을 기본값으로 초기화할까요?',
     settingsResetDone: '설정을 기본값으로 초기화했습니다',
@@ -817,7 +822,7 @@ const UI = {
     shortcutsNoMatch: '검색 결과가 없습니다.',
     shortcutCopied: (keyLabel: string) => `단축키 복사: ${keyLabel}`,
     shortcutsClose: '닫기',
-    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Esc 선택해제',
+    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · Esc 선택/자르기 해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `전체 파일 ${count}개에 적용할까요?`,
     macroConfirmSelected: (count: number) => `선택 파일 ${count}개에 적용할까요?`,
@@ -972,8 +977,11 @@ const UI = {
     cropWidth: 'Width',
     cropHeight: 'Height',
     applyCrop: 'Apply crop',
+    previewCrop: 'Preview crop',
+    cropPreviewTitle: 'Crop preview',
+    cropPreviewHint: 'Preview is not saved until apply.',
     cancelCrop: 'Clear area',
-    cropHint: 'Drag on canvas or enter exact values.',
+    cropHint: 'Drag on canvas or enter exact values. Enter apply, P preview, Esc clear.',
     cropDone: 'Crop applied',
     macroCount: 'Repeat count',
     macroRunAll: 'Apply to all files',
@@ -1033,6 +1041,7 @@ const UI = {
     settingsBrushDefault: 'Default brush size',
     settingsAutoSave: 'Autosave interval (sec)',
     settingsActivityLogLimit: 'Activity log item count',
+    settingsCropHideDocks: 'Hide bottom docks while cropping',
     settingsResetDefaults: 'Reset to defaults',
     settingsResetConfirm: 'Reset settings to defaults?',
     settingsResetDone: 'Settings reset to defaults',
@@ -1156,7 +1165,7 @@ const UI = {
     shortcutsNoMatch: 'No matching shortcuts.',
     shortcutCopied: (keyLabel: string) => `Shortcut copied: ${keyLabel}`,
     shortcutsClose: 'Close',
-    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Esc Clear selection',
+    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · Esc Clear selection/crop',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `Apply to all ${count} files?`,
     macroConfirmSelected: (count: number) => `Apply to ${count} selected files?`,
@@ -1317,6 +1326,13 @@ function App() {
   })
   const [mobileQuickPressed, setMobileQuickPressed] = useState<MobileQuickAction | null>(null)
   const [mobileQuickDrag, setMobileQuickDrag] = useState<MobileQuickAction | null>(null)
+  const [cropHideDocksOnCrop, setCropHideDocksOnCrop] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-crop-hide-docks') !== '0'
+    } catch {
+      return true
+    }
+  })
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -1433,6 +1449,7 @@ function App() {
   const [dragGuides, setDragGuides] = useState<{ x?: number; y?: number }>({})
   const [dragMetrics, setDragMetrics] = useState<{ left: number; right: number; top: number; bottom: number } | null>(null)
   const [cropRect, setCropRect] = useState<CropRect | null>(null)
+  const [cropPreviewDataUrl, setCropPreviewDataUrl] = useState<string | null>(null)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
   const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; visible: boolean }>({
@@ -1445,6 +1462,7 @@ function App() {
   const inpaintRunningRef = useRef(false)
   const debounceTimerRef = useRef<number | null>(null)
   const cropStartRef = useRef<{ x: number; y: number } | null>(null)
+  const cropResizeRef = useRef<{ handle: CropHandle; rect: CropRect } | null>(null)
   const lastRestoreMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
   const lastEraserMacroTemplateRef = useRef<NormalizedStroke[] | null>(null)
   const lastSelectionAnchorIdRef = useRef<string | null>(null)
@@ -1561,7 +1579,9 @@ function App() {
   useEffect(() => {
     setSelectedTextId(null)
     setCropRect(null)
+    setCropPreviewDataUrl(null)
     cropStartRef.current = null
+    cropResizeRef.current = null
     setCanvasOffset({ x: 0, y: 0 })
   }, [activeId])
 
@@ -1628,6 +1648,14 @@ function App() {
       // ignore
     }
   }, [showMobileQuickActions])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-crop-hide-docks', cropHideDocksOnCrop ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [cropHideDocksOnCrop])
 
   useEffect(() => {
     try {
@@ -2115,6 +2143,13 @@ function App() {
   }, [activeId, selectedTextId, active, editingTextId])
 
   useEffect(() => {
+    if (tool === 'crop') return
+    setCropPreviewDataUrl(null)
+    cropStartRef.current = null
+    cropResizeRef.current = null
+  }, [tool])
+
+  useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
@@ -2152,6 +2187,39 @@ function App() {
         e.preventDefault()
         clearActivityLog()
         return
+      }
+
+      if (tool === 'crop' && active && cropRect) {
+        const rect = normalizeCropRect(cropRect, active.width, active.height)
+        if (key === 'escape') {
+          e.preventDefault()
+          clearCropSelection(ui.cancelCrop)
+          return
+        }
+        if (key === 'enter' && !busy) {
+          e.preventDefault()
+          void applyCrop()
+          return
+        }
+        if (key === 'p' && !busy) {
+          e.preventDefault()
+          void previewCrop()
+          return
+        }
+
+        const step = e.shiftKey ? 10 : 1
+        if (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown') {
+          e.preventDefault()
+          let dx = 0
+          let dy = 0
+          if (key === 'arrowleft') dx = -step
+          if (key === 'arrowright') dx = step
+          if (key === 'arrowup') dy = -step
+          if (key === 'arrowdown') dy = step
+          setCropRect(normalizeCropRect({ ...rect, x: rect.x + dx, y: rect.y + dy }, active.width, active.height))
+          setCropPreviewDataUrl(null)
+          return
+        }
       }
 
       if (key === 'escape' && selectedAssetIds.length > 0) {
@@ -2207,7 +2275,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedText, active, selectedAssetIds.length, ui.selectionCleared, exportDialogOpen, showShortcutsHelp])
+  }, [selectedText, active, cropRect, tool, busy, selectedAssetIds.length, ui.selectionCleared, ui.cancelCrop, exportDialogOpen, showShortcutsHelp])
 
   useEffect(() => {
     return () => {
@@ -2364,6 +2432,15 @@ function App() {
     }
     const next = normalizeCropRect({ ...base, [field]: Number.isFinite(value) ? value : 0 }, active.width, active.height)
     setCropRect(next)
+    setCropPreviewDataUrl(null)
+  }
+
+  function clearCropSelection(nextStatus?: string) {
+    setCropRect(null)
+    setCropPreviewDataUrl(null)
+    cropStartRef.current = null
+    cropResizeRef.current = null
+    if (nextStatus) setStatus(nextStatus)
   }
 
   async function applyCrop() {
@@ -2417,11 +2494,40 @@ function App() {
       setSelectedTextId(null)
       setDragGuides({})
       setDragMetrics(null)
-      setCropRect(null)
-      cropStartRef.current = null
+      clearCropSelection()
       setStatus(ui.cropDone)
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function previewCrop() {
+    if (!active || !cropRect) return
+    const rect = normalizeCropRect(cropRect, active.width, active.height)
+    if (rect.width < 2 || rect.height < 2) return
+    try {
+      const source = await loadHtmlImage(active.baseDataUrl)
+      const canvas = document.createElement('canvas')
+      canvas.width = rect.width
+      canvas.height = rect.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error(ERR_CANVAS_UNAVAILABLE)
+      ctx.clearRect(0, 0, rect.width, rect.height)
+      ctx.drawImage(
+        source,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        0,
+        0,
+        rect.width,
+        rect.height,
+      )
+      setCropPreviewDataUrl(canvas.toDataURL('image/png'))
+      setStatus(ui.cropPreviewTitle)
+    } catch (e) {
+      setStatus(localizeErrorMessage(String(e instanceof Error ? e.message : e)))
     }
   }
 
@@ -2781,6 +2887,65 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     })
   }
 
+  function detectCropHandle(point: { x: number; y: number }, rect: CropRect): CropHandle | null {
+    const handles: Array<{ key: CropHandle; x: number; y: number }> = [
+      { key: 'nw', x: rect.x, y: rect.y },
+      { key: 'ne', x: rect.x + rect.width, y: rect.y },
+      { key: 'sw', x: rect.x, y: rect.y + rect.height },
+      { key: 'se', x: rect.x + rect.width, y: rect.y + rect.height },
+    ]
+    const threshold = 12
+    for (const handle of handles) {
+      if (Math.hypot(point.x - handle.x, point.y - handle.y) <= threshold) return handle.key
+    }
+    return null
+  }
+
+  function resizeCropRectFromHandle(startRect: CropRect, handle: CropHandle, current: { x: number; y: number }, maxW: number, maxH: number): CropRect {
+    let left = startRect.x
+    let top = startRect.y
+    let right = startRect.x + startRect.width
+    let bottom = startRect.y + startRect.height
+
+    if (handle === 'nw' || handle === 'sw') {
+      left = clamp(current.x, 0, right - 1)
+    }
+    if (handle === 'ne' || handle === 'se') {
+      right = clamp(current.x, left + 1, maxW)
+    }
+    if (handle === 'nw' || handle === 'ne') {
+      top = clamp(current.y, 0, bottom - 1)
+    }
+    if (handle === 'sw' || handle === 'se') {
+      bottom = clamp(current.y, top + 1, maxH)
+    }
+
+    return normalizeCropRect(
+      {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      },
+      maxW,
+      maxH,
+    )
+  }
+
+  function autoPanDuringCrop(stage: Konva.Stage) {
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return
+    const edge = 26
+    let dx = 0
+    let dy = 0
+    if (pointer.x <= edge) dx = 7
+    else if (pointer.x >= wrapSize.w - edge) dx = -7
+    if (pointer.y <= edge) dy = 7
+    else if (pointer.y >= wrapSize.h - edge) dy = -7
+    if (dx === 0 && dy === 0) return
+    setCanvasOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }))
+  }
+
   function onStageMouseDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     const stage = stageRef.current
     if (!stage || !active || busy) return
@@ -2801,7 +2966,20 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (tool === 'crop') {
       const xy = pointerToImageXY(stage)
       if (!xy) return
+      const currentRect = activeCropRect
+      if (currentRect) {
+        const handle = detectCropHandle(xy, currentRect)
+        if (handle) {
+          setCropPreviewDataUrl(null)
+          cropResizeRef.current = {
+            handle,
+            rect: currentRect,
+          }
+          return
+        }
+      }
       cropStartRef.current = { x: xy.x, y: xy.y }
+      setCropPreviewDataUrl(null)
       setCropRect({ x: xy.x, y: xy.y, width: 1, height: 1 })
       return
     }
@@ -2838,6 +3016,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     updateBrushCursor(stage)
 
     if (tool === 'crop') {
+      autoPanDuringCrop(stage)
+      const resize = cropResizeRef.current
+      if (resize) {
+        const xy = pointerToImageXY(stage)
+        if (!xy) return
+        setCropRect(resizeCropRectFromHandle(resize.rect, resize.handle, xy, active.width, active.height))
+        return
+      }
       const start = cropStartRef.current
       if (start) {
         const xy = pointerToImageXY(stage)
@@ -2866,6 +3052,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
     if (tool === 'crop') {
       cropStartRef.current = null
+      cropResizeRef.current = null
       return
     }
     const stroke = drawing.current
@@ -2885,6 +3072,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   function onStageMouseLeave() {
     drawing.current = null
     cropStartRef.current = null
+    cropResizeRef.current = null
     movePanRef.current = null
     setBrushCursor((prev) => ({ ...prev, visible: false }))
     setDragMetrics(null)
@@ -3419,6 +3607,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const canRedo = !busy && assetListHistoryFuture.length > 0
   const hasSelectedAssets = selectedAssetIds.length > 0
   const activeCropRect = active && cropRect ? normalizeCropRect(cropRect, active.width, active.height) : null
+  const cropDockClass = tool === 'crop'
+    ? cropHideDocksOnCrop
+      ? 'dockPassthrough dockCropHidden'
+      : 'dockPassthrough'
+    : ''
   const brushSliderValue = brushToSlider(brushSize)
   const filteredToastLog = useMemo(() => {
     if (activityFilter === 'all') return toastLog
@@ -3528,7 +3721,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }, [activityPreview, assets])
   const hasSettingsMatch = settingsQueryLower.length === 0 || (
     settingsTab === 'general'
-      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsMobileQuickOrder, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
+      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsCropHideDocks, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsMobileQuickOrder, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
       : settingsTab === 'editing'
         ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
         : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsDockerHub, ui.settingsGitHub, ui.settingsDocs, ui.settingsRepo].some(matchSetting)
@@ -4334,6 +4527,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
+            {settingsTab === 'general' && matchSetting(ui.settingsCropHideDocks) ? (
+            <div className={settingRowClass(ui.settingsCropHideDocks)}>
+              <label className="settingsToggle">
+                <input type="checkbox" checked={cropHideDocksOnCrop} onChange={(e) => setCropHideDocksOnCrop(e.target.checked)} />
+                <span>{renderSettingLabel(ui.settingsCropHideDocks)}</span>
+              </label>
+            </div>
+            ) : null}
+
             {settingsTab === 'general' && matchSetting(ui.settingsMobileQuickActions) ? (
             <div className={settingRowClass(ui.settingsMobileQuickActions)}>
               <label className="settingsToggle">
@@ -4623,7 +4825,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           ) : null}
           {active ? <div className="modeBadge">{tool === 'text' ? ui.modeText : tool === 'crop' ? ui.modeCrop : tool === 'move' ? ui.modeMove : tool === 'restore' ? ui.modeRestore : ui.modeEraser}</div> : null}
           {active ? (
-            <div className={`canvasZoomDock ${tool === 'crop' ? 'dockPassthrough dockCropHidden' : ''}`} title={ui.zoomHintCtrlWheel}>
+            <div className={`canvasZoomDock ${cropDockClass}`} title={ui.zoomHintCtrlWheel}>
               <button className="iconDockBtn" onClick={() => zoomBy(-0.1)} title={ui.zoomOut} aria-label={ui.zoomOut}>－</button>
               <button className="iconDockBtn zoomPct" onClick={() => { setZoom(1); setCanvasOffset({ x: 0, y: 0 }) }} title={ui.zoomReset} aria-label={ui.zoomReset}>
                 {Math.round(canvasZoom * 100)}%
@@ -4643,7 +4845,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
           ) : null}
           {active ? (
-            <div className={`canvasHistoryDock ${tool === 'crop' ? 'dockPassthrough dockCropHidden' : ''}`}>
+            <div className={`canvasHistoryDock ${cropDockClass}`}>
               <button
                 className="iconDockBtn"
                 title={ui.undoAction}
@@ -5289,9 +5491,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                   </div>
                   <div className="buttonRow">
                     <button className="btn primary" disabled={!active || !activeCropRect || !!busy} onClick={() => void applyCrop()}>{ui.applyCrop}</button>
-                    <button className="btn" disabled={!activeCropRect} onClick={() => { setCropRect(null); cropStartRef.current = null }}>{ui.cancelCrop}</button>
+                    <button className="btn" disabled={!active || !activeCropRect || !!busy} onClick={() => void previewCrop()}>{ui.previewCrop}</button>
+                    <button className="btn" disabled={!activeCropRect} onClick={() => clearCropSelection(ui.cancelCrop)}>{ui.cancelCrop}</button>
                   </div>
                   <div className="hint">{ui.cropHint}</div>
+                  {cropPreviewDataUrl ? (
+                    <div className="cropPreviewCard">
+                      <div className="label">{ui.cropPreviewTitle}</div>
+                      <img className="cropPreviewImage" src={cropPreviewDataUrl} alt={ui.cropPreviewTitle} loading="lazy" decoding="async" />
+                      <div className="hint">{ui.cropPreviewHint}</div>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
 

@@ -2779,6 +2779,25 @@
   gap: 10px;
 }
 
+.cropPreviewCard {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(13, 20, 32, 0.72);
+  border: 1px solid rgba(133, 194, 255, 0.26);
+  display: grid;
+  gap: 8px;
+}
+
+.cropPreviewImage {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(3, 7, 13, 0.85);
+  max-height: 220px;
+  object-fit: contain;
+}
+
 .colorField {
   display: grid;
   grid-template-columns: 1fr auto;
