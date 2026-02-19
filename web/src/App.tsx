@@ -580,6 +580,9 @@ const UI = {
     exportNoSelected: '선택한 파일이 없습니다',
     exportNow: '내보내기(저장하기)',
     exportResetRecent: '최근값 초기화',
+    exportPresetWeb: '웹 공유',
+    exportPresetPrint: '고해상도',
+    exportPresetSlides: '슬라이드',
     cancel: '취소',
     selectedText: '선택한 텍스트',
     noSelectedText: '텍스트를 선택하면 상세 설정이 표시됩니다.',
@@ -683,6 +686,8 @@ const UI = {
     settingsTabGeneral: '일반',
     settingsTabEditing: '편집',
     settingsTabInfo: '정보',
+    settingsSearchPlaceholder: '설정 검색',
+    settingsNoMatch: '검색 조건에 맞는 설정이 없습니다.',
     settingsLastAutoSave: '마지막 자동 저장',
     settingsNoAutoSave: '자동 저장 꺼짐',
     activityLog: '작업 로그',
@@ -703,6 +708,9 @@ const UI = {
     activityFilterWorking: '진행',
     activitySortLatest: '최신순',
     activitySortOldest: '오래된순',
+    activityLegendError: '오류',
+    activityLegendSuccess: '완료',
+    activityLegendWorking: '진행',
     activityKindAi: 'AI',
     activityKindExport: '내보내기',
     activityKindText: '텍스트',
@@ -722,6 +730,7 @@ const UI = {
     unsavedBadge: '미저장 변경',
     unsavedBadgeCount: (count: number) => `미저장 변경 (${count})`,
     unsavedUpdatedAt: (time: string) => `마지막 변경: ${time}`,
+    unsavedRecentChanges: '최근 변경',
     errCanvasUnavailable: '캔버스를 사용할 수 없습니다.',
     errPngConvertFailed: 'PNG로 변환하지 못했습니다.',
     errImageLoadFailed: '이미지를 불러오지 못했습니다.',
@@ -869,6 +878,9 @@ const UI = {
     exportNoSelected: 'No selected files',
     exportNow: 'Export (Save)',
     exportResetRecent: 'Reset recent values',
+    exportPresetWeb: 'Web share',
+    exportPresetPrint: 'High quality',
+    exportPresetSlides: 'Slides',
     cancel: 'Cancel',
     selectedText: 'Selected text',
     noSelectedText: 'Select text to see detailed controls.',
@@ -972,6 +984,8 @@ const UI = {
     settingsTabGeneral: 'General',
     settingsTabEditing: 'Editing',
     settingsTabInfo: 'Info',
+    settingsSearchPlaceholder: 'Search settings',
+    settingsNoMatch: 'No settings match your search.',
     settingsLastAutoSave: 'Last autosave',
     settingsNoAutoSave: 'Autosave off',
     activityLog: 'Activity log',
@@ -992,6 +1006,9 @@ const UI = {
     activityFilterWorking: 'Working',
     activitySortLatest: 'Latest first',
     activitySortOldest: 'Oldest first',
+    activityLegendError: 'Error',
+    activityLegendSuccess: 'Done',
+    activityLegendWorking: 'Working',
     activityKindAi: 'AI',
     activityKindExport: 'Export',
     activityKindText: 'Text',
@@ -1011,6 +1028,7 @@ const UI = {
     unsavedBadge: 'Unsaved changes',
     unsavedBadgeCount: (count: number) => `Unsaved changes (${count})`,
     unsavedUpdatedAt: (time: string) => `Last updated: ${time}`,
+    unsavedRecentChanges: 'Recent changes',
     errCanvasUnavailable: 'Canvas is unavailable.',
     errPngConvertFailed: 'Failed to convert to PNG.',
     errImageLoadFailed: 'Failed to load image.',
@@ -1162,6 +1180,7 @@ function App() {
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
+  const [settingsSearch, setSettingsSearch] = useState('')
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -3224,6 +3243,31 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         : pendingExportFormat === 'pdf'
           ? ui.exportFormatHintPdf
           : ui.exportFormatHintPptx
+  const settingsQueryLower = settingsSearch.trim().toLowerCase()
+  const matchSetting = (label: string) => settingsQueryLower.length === 0 || label.toLowerCase().includes(settingsQueryLower)
+  const recentDirtySummaries = useMemo(() => {
+    const seen = new Set<string>()
+    const picked: string[] = []
+    for (const item of toastLog) {
+      const text = item.text.trim()
+      if (!text || seen.has(text)) continue
+      seen.add(text)
+      picked.push(text)
+      if (picked.length >= 3) break
+    }
+    return picked
+  }, [toastLog])
+  const unsavedTooltip = [
+    lastDirtyAt ? ui.unsavedUpdatedAt(formatTimestamp(lastDirtyAt)) : ui.unsavedBadge,
+    recentDirtySummaries.length > 0 ? `${ui.unsavedRecentChanges}: ${recentDirtySummaries.join(' · ')}` : null,
+  ].filter(Boolean).join('\n')
+  const hasSettingsMatch = settingsQueryLower.length === 0 || (
+    settingsTab === 'general'
+      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
+      : settingsTab === 'editing'
+        ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
+        : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsVersion, ui.settingsRepo].some(matchSetting)
+  )
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -3292,6 +3336,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
   function closeSettings() {
     setSettingsOpen(false)
+    setSettingsSearch('')
   }
 
   function flashGuideTarget(target: 'files' | 'tools' | 'canvas' | 'export') {
@@ -3562,7 +3607,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button
               className={`unsavedBadge ${dirtyChangeCount >= 10 ? 'tierHigh' : dirtyChangeCount >= 3 ? 'tierWarn' : 'tierLow'}`}
               type="button"
-              title={lastDirtyAt ? ui.unsavedUpdatedAt(formatTimestamp(lastDirtyAt)) : ui.unsavedBadge}
+              title={unsavedTooltip}
               onClick={() => {
                 if (!hasSelectedAssets && pendingExportScope === 'selected') {
                   setPendingExportScope('current')
@@ -3612,6 +3657,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="settingsTitle">{ui.settingsTitle}</div>
               <button className="settingsCloseBtn" onClick={closeSettings}>{ui.settingsClose}</button>
             </div>
+            <input
+              className="input settingsSearchInput"
+              value={settingsSearch}
+              onChange={(e) => setSettingsSearch(e.target.value)}
+              placeholder={ui.settingsSearchPlaceholder}
+              aria-label={ui.settingsSearchPlaceholder}
+            />
 
             <div className="settingsLayout">
               <div className="settingsSidebar">
@@ -3629,7 +3681,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               </div>
 
               <div className="settingsContent">
-            {settingsTab === 'general' ? (
+            {!hasSettingsMatch ? <div className="hint settingsNoMatch">{ui.settingsNoMatch}</div> : null}
+            {settingsTab === 'general' && matchSetting(ui.settingsLanguage) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsLanguage}</div>
               <select className="langSelect settingsLangSelect" value={locale} onChange={(e) => setLocale(e.target.value as Locale)} aria-label={ui.language}>
@@ -3640,7 +3693,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' ? (
+            {settingsTab === 'general' && matchSetting(ui.settingsAiRestoreDefault) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsAiRestoreDefault}</div>
               <select className="langSelect settingsLangSelect" value={preferredDevice} onChange={(e) => void setDeviceMode(e.target.value as 'cpu' | 'cuda')}>
@@ -3650,7 +3703,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' ? (
+            {settingsTab === 'editing' && matchSetting(ui.settingsBrushDefault) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsBrushDefault}</div>
               <div className="settingsInline">
@@ -3675,7 +3728,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' ? (
+            {settingsTab === 'general' && matchSetting(ui.settingsAutoSave) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsAutoSave}</div>
               <select className="langSelect settingsLangSelect" value={String(autoSaveSeconds)} onChange={(e) => setAutoSaveSeconds(clamp(Number(e.target.value), 0, 300))}>
@@ -3689,7 +3742,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' ? (
+            {settingsTab === 'general' && matchSetting(ui.settingsActivityLogLimit) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsActivityLogLimit}</div>
               <select className="langSelect settingsLangSelect" value={String(activityLogLimit)} onChange={(e) => setActivityLogLimit(clamp(Number(e.target.value), 5, 20))}>
@@ -3700,7 +3753,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' ? (
+            {settingsTab === 'general' && (matchSetting(ui.settingsResetGeneral) || matchSetting(ui.settingsResetExport) || matchSetting(ui.settingsResetDefaults)) ? (
             <div className="settingsRow settingsActionRow">
               <button className="btn ghost" onClick={resetGeneralSettings}>{ui.settingsResetGeneral}</button>
               <button className="btn ghost" onClick={resetExportSettings}>{ui.settingsResetExport}</button>
@@ -3708,13 +3761,13 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' ? (
+            {settingsTab === 'editing' && matchSetting(ui.settingsResetEditing) ? (
             <div className="settingsRow settingsActionRow">
               <button className="btn ghost" onClick={resetEditingSettings}>{ui.settingsResetEditing}</button>
             </div>
             ) : null}
 
-            {settingsTab === 'general' ? (
+            {settingsTab === 'general' && matchSetting(ui.settingsGuide) ? (
             <div className="settingsRow">
               <label className="settingsToggle">
                 <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} />
@@ -3723,7 +3776,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' ? (
+            {settingsTab === 'editing' && matchSetting(ui.settingsShortcutTips) ? (
             <div className="settingsRow">
               <label className="settingsToggle">
                 <input type="checkbox" checked={showShortcutTips} onChange={(e) => setShowShortcutTips(e.target.checked)} />
@@ -3732,7 +3785,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' ? (
+            {settingsTab === 'editing' && matchSetting(ui.settingsTooltipDensity) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsTooltipDensity}</div>
               <select className="langSelect settingsLangSelect" value={tooltipDensity} onChange={(e) => setTooltipDensity(e.target.value as TooltipDensity)}>
@@ -3742,7 +3795,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' ? (
+            {settingsTab === 'editing' && matchSetting(ui.settingsAnimationStrength) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsAnimationStrength}</div>
               <select className="langSelect settingsLangSelect" value={animationStrength} onChange={(e) => setAnimationStrength(e.target.value as AnimationStrength)}>
@@ -3753,7 +3806,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' ? (
+            {settingsTab === 'editing' && matchSetting(ui.settingsUiDensity) ? (
             <div className="settingsRow">
               <div className="settingsLabel">{ui.settingsUiDensity}</div>
               <select className="langSelect settingsLangSelect" value={uiDensity} onChange={(e) => setUiDensity(e.target.value as 'default' | 'compact')}>
@@ -3763,7 +3816,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'info' ? (
+            {settingsTab === 'info' && (matchSetting(ui.settingsInfo) || matchSetting(ui.settingsDeveloper) || matchSetting(ui.settingsVersion) || matchSetting(ui.settingsRepo)) ? (
             <div className="settingsInfo">
               <div className="settingsInfoTitle">{ui.settingsInfo}</div>
               <div className="settingsInfoRow"><strong>{ui.settingsDeveloper}</strong><span>{ui.settingsName}</span></div>
@@ -4717,6 +4770,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <button className={`tabBtn ${activitySort === 'latest' ? 'active' : ''}`} onClick={() => setActivitySort('latest')}>{ui.activitySortLatest}</button>
             <button className={`tabBtn ${activitySort === 'oldest' ? 'active' : ''}`} onClick={() => setActivitySort('oldest')}>{ui.activitySortOldest}</button>
           </div>
+          <div className="activityLegend" aria-hidden="true">
+            <span className="legendItem tone-error"><span className="dot" />{ui.activityLegendError}</span>
+            <span className="legendItem tone-success"><span className="dot" />{ui.activityLegendSuccess}</span>
+            <span className="legendItem tone-working"><span className="dot" />{ui.activityLegendWorking}</span>
+          </div>
           <div className="activityPanelBody">
             {orderedToastLog.length > 0 ? orderedToastLog.map((item) => {
               const recent = activityNow - item.at <= 30_000
@@ -4791,6 +4849,11 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="pptx">PPTX</option>
               </select>
               <div className="formatHintBadge">{selectedExportFormatHint}</div>
+              <div className="exportPresetRow">
+                <button className="btn ghost" onClick={() => { setPendingExportFormat('jpg'); setPendingExportRatio(2); setPendingExportQuality(84) }}>{ui.exportPresetWeb}</button>
+                <button className="btn ghost" onClick={() => { setPendingExportFormat('png'); setPendingExportRatio(4) }}>{ui.exportPresetPrint}</button>
+                <button className="btn ghost" onClick={() => { setPendingExportFormat('pptx'); setPendingExportRatio(2) }}>{ui.exportPresetSlides}</button>
+              </div>
             </div>
             <div>
               <div className="label">{ui.exportScope}</div>

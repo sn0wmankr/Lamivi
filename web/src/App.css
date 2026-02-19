@@ -1427,6 +1427,40 @@
   padding: 6px 10px 0;
 }
 
+.activityLegend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px 0;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.legendItem .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #8ddfff;
+}
+
+.legendItem.tone-error .dot {
+  background: #ff9f9f;
+}
+
+.legendItem.tone-success .dot {
+  background: #8af7db;
+}
+
+.legendItem.tone-working .dot {
+  background: #8ddfff;
+}
+
 .unsavedBadge {
   appearance: none;
   display: inline-flex;
@@ -1477,6 +1511,15 @@
   flex-wrap: wrap;
 }
 
+.settingsSearchInput {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.settingsNoMatch {
+  margin: 4px 0;
+}
+
 .shortcutsSearchInput {
   width: 100%;
 }
@@ -1524,6 +1567,13 @@
   background: rgba(100, 210, 255, 0.1);
   color: #d8f1ff;
   font-size: 11px;
+}
+
+.exportPresetRow {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .activityFilterRow .tabBtn {
@@ -2720,6 +2770,9 @@
   }
   .shortcutsCategoryRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .exportPresetRow {
+    grid-template-columns: 1fr;
   }
   .rotationControlRow {
     grid-template-columns: 78px 1fr;
