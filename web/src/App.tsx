@@ -104,6 +104,10 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function splitFilename(name: string): { base: string; ext: string } {
   const trimmed = name.trim()
   const idx = trimmed.lastIndexOf('.')
@@ -735,6 +739,7 @@ const UI = {
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
     activityShareView: '뷰 공유',
+    activityShareWithExport: '내보내기 옵션 포함',
     activityCopyItem: '항목 복사',
     activityJumpItem: '이 파일로 이동',
     activityPreviewOpen: '시점 미리보기',
@@ -1067,6 +1072,7 @@ const UI = {
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
     activityShareView: 'Share view',
+    activityShareWithExport: 'Include export options',
     activityCopyItem: 'Copy item',
     activityJumpItem: 'Jump to file',
     activityPreviewOpen: 'Preview snapshot',
@@ -1298,6 +1304,7 @@ function App() {
     return ['export', 'activity', 'shortcuts', 'settings']
   })
   const [mobileQuickPressed, setMobileQuickPressed] = useState<MobileQuickAction | null>(null)
+  const [mobileQuickDrag, setMobileQuickDrag] = useState<MobileQuickAction | null>(null)
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -1330,6 +1337,13 @@ function App() {
       return window.localStorage.getItem('lamivi-activity-sort') === 'oldest' ? 'oldest' : 'latest'
     } catch {
       return 'latest'
+    }
+  })
+  const [shareWithExportSettings, setShareWithExportSettings] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-share-with-export') === '1'
+    } catch {
+      return false
     }
   })
   const [activityLogLimit, setActivityLogLimit] = useState<number>(() => {
@@ -1612,6 +1626,14 @@ function App() {
   }, [mobileQuickOrder])
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-share-with-export', shareWithExportSettings ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [shareWithExportSettings])
+
+  useEffect(() => {
     if (activityQueryInitRef.current) return
     activityQueryInitRef.current = true
     try {
@@ -1619,9 +1641,17 @@ function App() {
       const open = params.get('activityOpen')
       const filter = params.get('activityFilter')
       const sort = params.get('activitySort')
+      const exportFormat = params.get('exportFormat')
+      const exportRatio = Number(params.get('exportRatio'))
+      const exportScope = params.get('exportScope')
+      const exportQuality = Number(params.get('exportQuality'))
       if (open === '1' || open === '0') setShowActivityLog(open === '1')
       if (filter === 'all' || filter === 'error' || filter === 'success' || filter === 'working') setActivityFilter(filter)
       if (sort === 'latest' || sort === 'oldest') setActivitySort(sort)
+      if (exportFormat === 'png' || exportFormat === 'jpg' || exportFormat === 'webp' || exportFormat === 'pdf' || exportFormat === 'pptx') setPendingExportFormat(exportFormat)
+      if (Number.isFinite(exportRatio)) setPendingExportRatio(normalizeExportRatio(exportRatio))
+      if (exportScope === 'current' || exportScope === 'selected' || exportScope === 'all') setPendingExportScope(exportScope)
+      if (Number.isFinite(exportQuality)) setPendingExportQuality(clamp(Math.round(exportQuality), 50, 100))
     } catch {
       // ignore
     }
@@ -3447,15 +3477,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const settingRowClass = (label: string) => settingsQueryLower.length > 0 && matchSetting(label) ? 'settingsRow settingsRowMatch' : 'settingsRow'
   const renderSettingLabel = (label: string): ReactNode => {
     if (!settingsQueryLower) return label
-    const idx = label.toLowerCase().indexOf(settingsQueryLower)
-    if (idx < 0) return label
-    return (
-      <>
-        {label.slice(0, idx)}
-        <mark className="settingsMark">{label.slice(idx, idx + settingsQueryLower.length)}</mark>
-        {label.slice(idx + settingsQueryLower.length)}
-      </>
-    )
+    const escaped = escapeRegExp(settingsQueryLower)
+    if (!escaped) return label
+    const re = new RegExp(`(${escaped})`, 'ig')
+    const parts = label.split(re)
+    if (parts.length <= 1) return label
+    return parts.map((part, idx) => {
+      if (part.toLowerCase() === settingsQueryLower) {
+        return <mark className="settingsMark" key={`${label}-mark-${idx}`}>{part}</mark>
+      }
+      return <span key={`${label}-text-${idx}`}>{part}</span>
+    })
   }
   const recentDirtySummaries = useMemo(() => {
     const seen = new Set<string>()
@@ -3647,6 +3679,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       setStatus(ui.activityPreviewUnavailable)
       return
     }
+    if (!window.confirm(target === 'snapshot' ? ui.activityApplySnapshot : ui.activityApplyCurrent)) return
     updateAssetByIdWithHistory(activityPreview.item.assetId, target === 'snapshot' ? ui.activityApplySnapshot : ui.activityApplyCurrent, (asset) => ({
       ...asset,
       width: chosen.width,
@@ -3731,6 +3764,20 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     })
   }
 
+  function reorderMobileQuickActions(source: MobileQuickAction, target: MobileQuickAction) {
+    if (source === target) return
+    setMobileQuickOrder((prev) => {
+      const from = prev.indexOf(source)
+      const to = prev.indexOf(target)
+      if (from < 0 || to < 0) return prev
+      const next = [...prev]
+      const [item] = next.splice(from, 1)
+      if (!item) return prev
+      next.splice(to, 0, item)
+      return next
+    })
+  }
+
   function beginLongPressHint(message: string) {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current)
@@ -3743,7 +3790,19 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   async function copyCurrentViewLink() {
-    const text = window.location.href
+    const url = new URL(window.location.href)
+    if (shareWithExportSettings) {
+      url.searchParams.set('exportFormat', pendingExportFormat)
+      url.searchParams.set('exportRatio', String(pendingExportRatio))
+      url.searchParams.set('exportScope', pendingExportScope)
+      url.searchParams.set('exportQuality', String(pendingExportQuality))
+    } else {
+      url.searchParams.delete('exportFormat')
+      url.searchParams.delete('exportRatio')
+      url.searchParams.delete('exportScope')
+      url.searchParams.delete('exportQuality')
+    }
+    const text = url.toString()
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -4249,7 +4308,19 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="settingsLabel">{renderSettingLabel(ui.settingsMobileQuickOrder)}</div>
               <div className="mobileOrderList">
                 {mobileQuickOrder.map((action, idx) => (
-                  <div className="mobileOrderRow" key={`order-${action}`}>
+                  <div
+                    className={`mobileOrderRow ${mobileQuickDrag === action ? 'dragging' : ''}`}
+                    key={`order-${action}`}
+                    draggable
+                    onDragStart={() => setMobileQuickDrag(action)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => {
+                      if (!mobileQuickDrag) return
+                      reorderMobileQuickActions(mobileQuickDrag, action)
+                      setMobileQuickDrag(null)
+                    }}
+                    onDragEnd={() => setMobileQuickDrag(null)}
+                  >
                     <span className="mobileOrderName">{mobileActionLabel(action)}</span>
                     <div className="mobileOrderActions">
                       <button className="btn ghost" disabled={idx === 0} onClick={() => moveMobileQuickAction(action, -1)}>{ui.settingsMoveUp}</button>
@@ -5265,6 +5336,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               </select>
               <button className="btn" onClick={() => void copyActivityLog()} disabled={filteredToastLog.length === 0}>{ui.activityCopy}</button>
               <button className="btn" onClick={() => void copyCurrentViewLink()}>{ui.activityShareView}</button>
+              <label className="activityShareToggle">
+                <input type="checkbox" checked={shareWithExportSettings} onChange={(e) => setShareWithExportSettings(e.target.checked)} />
+                <span>{ui.activityShareWithExport}</span>
+              </label>
               <button className="btn" onClick={downloadActivityLog} disabled={activityDownloadMode === 'all' ? toastLog.length === 0 : filteredToastLog.length === 0}>{ui.activityDownload}</button>
               <button className="btn" onClick={clearActivityLog} disabled={toastLog.length === 0}>{ui.activityClear}</button>
             </div>

@@ -1589,6 +1589,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  cursor: grab;
+}
+
+.mobileOrderRow.dragging {
+  opacity: 0.55;
 }
 
 .mobileOrderName {
@@ -1599,6 +1604,19 @@
 .mobileOrderActions {
   display: inline-flex;
   gap: 6px;
+}
+
+.activityShareToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.activityShareToggle input {
+  accent-color: #64d2ff;
 }
 
 .shortcutsSearchInput {
@@ -1843,6 +1861,7 @@
   color: #e8f5ff;
   font-size: 18px;
   cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 
 .mobileQuickBtn:hover {
