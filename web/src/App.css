@@ -2786,6 +2786,30 @@
   margin-top: 6px;
 }
 
+.cropNudgePanel {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.cropNudgeRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+@media (max-width: 900px) {
+  .cropPresetRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .cropNudgePanel {
+    grid-template-columns: 1fr;
+  }
+}
+
 .cropPreviewCard {
   margin-top: 10px;
   padding: 10px;
