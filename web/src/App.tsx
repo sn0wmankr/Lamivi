@@ -1450,6 +1450,7 @@ function App() {
   const [dragMetrics, setDragMetrics] = useState<{ left: number; right: number; top: number; bottom: number } | null>(null)
   const [cropRect, setCropRect] = useState<CropRect | null>(null)
   const [cropPreviewDataUrl, setCropPreviewDataUrl] = useState<string | null>(null)
+  const [cropHoverHandle, setCropHoverHandle] = useState<CropHandle | null>(null)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
   const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; visible: boolean }>({
@@ -1580,6 +1581,7 @@ function App() {
     setSelectedTextId(null)
     setCropRect(null)
     setCropPreviewDataUrl(null)
+    setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
     setCanvasOffset({ x: 0, y: 0 })
@@ -2145,6 +2147,7 @@ function App() {
   useEffect(() => {
     if (tool === 'crop') return
     setCropPreviewDataUrl(null)
+    setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
   }, [tool])
@@ -2438,6 +2441,7 @@ function App() {
   function clearCropSelection(nextStatus?: string) {
     setCropRect(null)
     setCropPreviewDataUrl(null)
+    setCropHoverHandle(null)
     cropStartRef.current = null
     cropResizeRef.current = null
     if (nextStatus) setStatus(nextStatus)
@@ -3019,10 +3023,18 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       autoPanDuringCrop(stage)
       const resize = cropResizeRef.current
       if (resize) {
+        setCropHoverHandle(resize.handle)
         const xy = pointerToImageXY(stage)
         if (!xy) return
         setCropRect(resizeCropRectFromHandle(resize.rect, resize.handle, xy, active.width, active.height))
         return
+      }
+      if (activeCropRect) {
+        const xy = pointerToImageXY(stage)
+        if (xy) setCropHoverHandle(detectCropHandle(xy, activeCropRect))
+        else setCropHoverHandle(null)
+      } else {
+        setCropHoverHandle(null)
       }
       const start = cropStartRef.current
       if (start) {
@@ -3053,6 +3065,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     if (tool === 'crop') {
       cropStartRef.current = null
       cropResizeRef.current = null
+      setCropHoverHandle(null)
       return
     }
     const stroke = drawing.current
@@ -3073,6 +3086,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     drawing.current = null
     cropStartRef.current = null
     cropResizeRef.current = null
+    setCropHoverHandle(null)
     movePanRef.current = null
     setBrushCursor((prev) => ({ ...prev, visible: false }))
     setDragMetrics(null)
@@ -3588,10 +3602,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     })
   }
 
+  const activeCropHandle = cropResizeRef.current?.handle ?? cropHoverHandle
+  const cropCursor = activeCropHandle === 'nw' || activeCropHandle === 'se'
+    ? 'nwse-resize'
+    : activeCropHandle === 'ne' || activeCropHandle === 'sw'
+      ? 'nesw-resize'
+      : 'crosshair'
   const stageCursor = tool === 'restore' || tool === 'eraser'
     ? 'none'
     : tool === 'crop'
-      ? 'crosshair'
+      ? cropCursor
       : tool === 'move'
         ? 'grab'
         : 'default'
