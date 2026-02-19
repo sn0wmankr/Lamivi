@@ -699,6 +699,9 @@ const UI = {
     settingsSuggestAutosave: '자동 저장',
     settingsSuggestDensity: 'UI 밀도',
     settingsSuggestAnimation: '애니메이션',
+    settingsRecentClear: '최근 검색 지우기',
+    settingsRecentRemove: (keyword: string) => `최근 검색 제거: ${keyword}`,
+    settingsMobileQuickActions: '모바일 퀵 액션 바',
     settingsLastAutoSave: '마지막 자동 저장',
     settingsNoAutoSave: '자동 저장 꺼짐',
     activityLog: '작업 로그',
@@ -711,6 +714,7 @@ const UI = {
     activityPreviewUnavailable: '이 로그는 미리보기를 지원하지 않습니다',
     activityPreviewTitle: '작업 시점 미리보기',
     activityPreviewClose: '닫기',
+    activityPreviewCompare: '비교 슬라이더',
     activityDownload: '로그 저장',
     activityDownloadFiltered: '필터만 저장',
     activityDownloadAll: '전체 저장',
@@ -1014,6 +1018,9 @@ const UI = {
     settingsSuggestAutosave: 'Autosave',
     settingsSuggestDensity: 'UI density',
     settingsSuggestAnimation: 'Animation',
+    settingsRecentClear: 'Clear recent searches',
+    settingsRecentRemove: (keyword: string) => `Removed recent search: ${keyword}`,
+    settingsMobileQuickActions: 'Mobile quick action rail',
     settingsLastAutoSave: 'Last autosave',
     settingsNoAutoSave: 'Autosave off',
     activityLog: 'Activity log',
@@ -1026,6 +1033,7 @@ const UI = {
     activityPreviewUnavailable: 'This log has no preview snapshot',
     activityPreviewTitle: 'Activity snapshot preview',
     activityPreviewClose: 'Close',
+    activityPreviewCompare: 'Compare slider',
     activityDownload: 'Save log',
     activityDownloadFiltered: 'Save filtered',
     activityDownloadAll: 'Save all',
@@ -1224,6 +1232,13 @@ function App() {
       return []
     }
   })
+  const [showMobileQuickActions, setShowMobileQuickActions] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-mobile-quick-actions') !== '0'
+    } catch {
+      return true
+    }
+  })
   const [showActivityLog, setShowActivityLog] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-open') === '1'
@@ -1234,6 +1249,7 @@ function App() {
   const [toastLog, setToastLog] = useState<ToastLogItem[]>([])
   const [activityMenu, setActivityMenu] = useState<{ x: number; y: number; item: ToastLogItem } | null>(null)
   const [activityPreview, setActivityPreview] = useState<{ item: ToastLogItem; snapshot: PageSnapshot | null } | null>(null)
+  const [activityPreviewCompare, setActivityPreviewCompare] = useState(50)
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>(() => {
     try {
       const saved = window.localStorage.getItem('lamivi-activity-filter')
@@ -1518,6 +1534,14 @@ function App() {
       // ignore
     }
   }, [locale])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-mobile-quick-actions', showMobileQuickActions ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [showMobileQuickActions])
 
   useEffect(() => {
     try {
@@ -3341,9 +3365,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     recentDirtySummaries.length > 0 ? `${ui.unsavedRecentChanges}: ${recentDirtySummaries.join(' · ')}` : null,
   ].filter(Boolean).join('\n')
   const settingsSuggestions = [ui.settingsSuggestDevice, ui.settingsSuggestAutosave, ui.settingsSuggestDensity, ui.settingsSuggestAnimation]
+  const activityPreviewCurrentBase = useMemo(() => {
+    const previewAssetId = activityPreview?.item.assetId
+    if (!previewAssetId) return null
+    const found = assets.find((asset) => asset.id === previewAssetId)
+    return found?.baseDataUrl ?? null
+  }, [activityPreview, assets])
   const hasSettingsMatch = settingsQueryLower.length === 0 || (
     settingsTab === 'general'
-      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
+      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
       : settingsTab === 'editing'
         ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
         : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsVersion, ui.settingsRepo].some(matchSetting)
@@ -3494,7 +3524,17 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       setStatus(ui.activityPreviewUnavailable)
       return
     }
+    setActivityPreviewCompare(50)
     setActivityPreview({ item, snapshot: parsed })
+  }
+
+  function clearSettingsSearchHistory() {
+    setSettingsSearchHistory([])
+  }
+
+  function removeSettingsSearchHistoryItem(keyword: string) {
+    setSettingsSearchHistory((prev) => prev.filter((item) => item !== keyword))
+    setStatus(ui.settingsRecentRemove(keyword))
   }
 
   function beginLongPressHint(message: string) {
@@ -3800,6 +3840,51 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           </div>
         </div>
       </div>
+      {showMobileQuickActions ? (
+        <div className="mobileQuickRail" aria-label="mobile quick actions">
+          <button
+            className="mobileQuickBtn"
+            onClick={() => {
+              if (!hasSelectedAssets && pendingExportScope === 'selected') {
+                setPendingExportScope('current')
+              }
+              setExportDialogOpen(true)
+            }}
+            onTouchStart={() => beginLongPressHint(ui.exportNow)}
+            onTouchEnd={cancelLongPressHint}
+            onTouchCancel={cancelLongPressHint}
+          >
+            ⬇
+          </button>
+          <button
+            className="mobileQuickBtn"
+            onClick={() => setShowActivityLog((prev) => !prev)}
+            onTouchStart={() => beginLongPressHint(showActivityLog ? ui.activityHide : ui.activityShow)}
+            onTouchEnd={cancelLongPressHint}
+            onTouchCancel={cancelLongPressHint}
+          >
+            🧾
+          </button>
+          <button
+            className="mobileQuickBtn"
+            onClick={() => setShowShortcutsHelp((prev) => !prev)}
+            onTouchStart={() => beginLongPressHint(ui.shortcutsHelp)}
+            onTouchEnd={cancelLongPressHint}
+            onTouchCancel={cancelLongPressHint}
+          >
+            ⌨
+          </button>
+          <button
+            className="mobileQuickBtn"
+            onClick={() => (settingsOpen ? closeSettings() : openSettings())}
+            onTouchStart={() => beginLongPressHint(ui.settings)}
+            onTouchEnd={cancelLongPressHint}
+            onTouchCancel={cancelLongPressHint}
+          >
+            ⚙
+          </button>
+        </div>
+      ) : null}
 
       {pendingAutoRestore ? (
         <div className="restorePrompt" role="dialog" aria-modal="true">
@@ -3840,10 +3925,14 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="settingsHistoryRow">
                 <span className="hint settingsHistoryLabel">{ui.settingsRecentSearches}</span>
                 {settingsSearchHistory.map((keyword) => (
-                  <button key={`history-${keyword}`} className="tabBtn settingsSuggestBtn" onClick={() => setSettingsSearch(keyword)}>
-                    {keyword}
-                  </button>
+                  <span key={`history-${keyword}`} className="settingsHistoryItem">
+                    <button className="tabBtn settingsSuggestBtn" onClick={() => setSettingsSearch(keyword)}>
+                      {keyword}
+                    </button>
+                    <button className="historyRemoveBtn" onClick={() => removeSettingsSearchHistoryItem(keyword)} aria-label={ui.settingsRecentRemove(keyword)} title={ui.settingsRecentRemove(keyword)}>×</button>
+                  </span>
                 ))}
+                <button className="btn ghost" onClick={clearSettingsSearchHistory}>{ui.settingsRecentClear}</button>
               </div>
             ) : null}
 
@@ -3932,6 +4021,15 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="10">10</option>
                 <option value="20">20</option>
               </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' && matchSetting(ui.settingsMobileQuickActions) ? (
+            <div className={settingRowClass(ui.settingsMobileQuickActions)}>
+              <label className="settingsToggle">
+                <input type="checkbox" checked={showMobileQuickActions} onChange={(e) => setShowMobileQuickActions(e.target.checked)} />
+                <span>{ui.settingsMobileQuickActions}</span>
+              </label>
             </div>
             ) : null}
 
@@ -5009,11 +5107,22 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         <div className="dialogBackdrop" onClick={() => setActivityPreview(null)}>
           <div className="dialog activityPreviewDialog" onClick={(e) => e.stopPropagation()}>
             <div className="dialogTitle">{ui.activityPreviewTitle}</div>
-            {activityPreview.snapshot ? (
+            {activityPreview.snapshot && activityPreviewCurrentBase ? (
+              <div className="activityPreviewCompareWrap">
+                <img className="activityPreviewImage" src={activityPreview.snapshot.baseDataUrl} alt={ui.activityPreviewTitle} />
+                <img className="activityPreviewImage compareLayer" src={activityPreviewCurrentBase} alt={ui.activityPreviewTitle} style={{ clipPath: `inset(0 ${100 - activityPreviewCompare}% 0 0)` }} />
+              </div>
+            ) : activityPreview.snapshot ? (
               <img className="activityPreviewImage" src={activityPreview.snapshot.baseDataUrl} alt={ui.activityPreviewTitle} />
             ) : (
               <div className="hint">{ui.activityPreviewUnavailable}</div>
             )}
+            {activityPreview.snapshot && activityPreviewCurrentBase ? (
+              <div>
+                <div className="label">{ui.activityPreviewCompare}</div>
+                <input className="input smoothRange" type="range" min={0} max={100} step={1} value={activityPreviewCompare} onChange={(e) => setActivityPreviewCompare(clamp(Number(e.target.value), 0, 100))} />
+              </div>
+            ) : null}
             <div className="hint">[{formatLogTimestamp(activityPreview.item.at)}] {activityKindLabel(activityPreview.item)}: {activityPreview.item.text}</div>
             <div className="dialogActions">
               <button className="btn" onClick={() => setActivityPreview(null)}>{ui.activityPreviewClose}</button>

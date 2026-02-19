@@ -1535,6 +1535,27 @@
   margin-right: 2px;
 }
 
+.settingsHistoryItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.historyRemoveBtn {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #dcefff;
+  cursor: pointer;
+}
+
+.historyRemoveBtn:hover {
+  border-color: rgba(255, 124, 124, 0.55);
+  background: rgba(255, 124, 124, 0.16);
+}
+
 .settingsSuggestBtn {
   height: 28px;
   padding: 0 10px;
@@ -1697,6 +1718,10 @@
   width: min(460px, calc(100vw - 24px));
 }
 
+.activityPreviewCompareWrap {
+  position: relative;
+}
+
 .activityPreviewImage {
   width: 100%;
   max-height: 52vh;
@@ -1704,6 +1729,11 @@
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.activityPreviewImage.compareLayer {
+  position: absolute;
+  inset: 0;
 }
 
 .menuItem {
@@ -1734,6 +1764,37 @@
 
 .ctrlLabel {
   white-space: nowrap;
+}
+
+.mobileQuickRail {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 38;
+  display: none;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(8, 12, 20, 0.84);
+  backdrop-filter: blur(6px);
+}
+
+.mobileQuickBtn {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8f5ff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.mobileQuickBtn:hover {
+  border-color: rgba(100, 210, 255, 0.55);
+  background: rgba(100, 210, 255, 0.16);
 }
 
 .activityItem.jumpable {
@@ -2861,6 +2922,9 @@
   .rightControls {
     width: 100%;
     justify-content: flex-end;
+  }
+  .mobileQuickRail {
+    display: inline-flex;
   }
   .activityBtn {
     min-width: 36px;
