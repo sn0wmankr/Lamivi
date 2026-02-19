@@ -640,6 +640,9 @@ const UI = {
     cropPreviewHint: '미리보기는 저장되지 않습니다.',
     cropCompareBefore: '원본',
     cropCompareAfter: '잘라낸 결과',
+    cropCompareFocusLeft: '왼쪽 보기',
+    cropCompareFocusCenter: '중앙 보기',
+    cropCompareFocusRight: '오른쪽 보기',
     cropPreset: '비율 프리셋',
     cropPresetFull: '전체',
     cropPresetFree: '자유',
@@ -657,7 +660,7 @@ const UI = {
     cropShrinkHeight: '높이 줄이기',
     cropGrowHeight: '높이 늘리기',
     cancelCrop: '영역 취소',
-    cropHint: '드래그 또는 수치 입력 · Enter 적용 · P 미리보기 · 0 전체영역 · Esc 취소 · 방향키 이동(Shift 가속) · Alt+방향키 크기 조절',
+    cropHint: '드래그 또는 수치 입력 · Enter 적용 · P 미리보기 · 0 전체영역 · Esc 취소 · 방향키 이동(Shift 가속) · Alt+방향키 크기 조절 · [/] 비교 이동',
     cropDone: '잘라내기를 적용했습니다',
     macroCount: '반복 횟수',
     macroRunAll: '전체 파일 적용',
@@ -1001,6 +1004,9 @@ const UI = {
     cropPreviewHint: 'Preview is not saved until apply.',
     cropCompareBefore: 'Before',
     cropCompareAfter: 'After crop',
+    cropCompareFocusLeft: 'Focus left',
+    cropCompareFocusCenter: 'Focus center',
+    cropCompareFocusRight: 'Focus right',
     cropPreset: 'Ratio preset',
     cropPresetFull: 'Full',
     cropPresetFree: 'Free',
@@ -1018,7 +1024,7 @@ const UI = {
     cropShrinkHeight: 'Shrink height',
     cropGrowHeight: 'Grow height',
     cancelCrop: 'Clear area',
-    cropHint: 'Drag or type values · Enter apply · P preview · 0 full frame · Esc clear · Arrows move (Shift faster) · Alt+arrows resize',
+    cropHint: 'Drag or type values · Enter apply · P preview · 0 full frame · Esc clear · Arrows move (Shift faster) · Alt+arrows resize · [/] compare shift',
     cropDone: 'Crop applied',
     macroCount: 'Repeat count',
     macroRunAll: 'Apply to all files',
@@ -2277,6 +2283,12 @@ function App() {
           applyCropPreset('full')
           return
         }
+        if (cropPreviewDataUrl && (key === '[' || key === ']')) {
+          e.preventDefault()
+          const delta = key === '[' ? -(e.shiftKey ? 10 : 2) : (e.shiftKey ? 10 : 2)
+          adjustCropPreviewCompare(delta)
+          return
+        }
 
         const step = e.shiftKey ? 10 : 1
         if (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown') {
@@ -2355,7 +2367,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedText, active, cropRect, tool, busy, selectedAssetIds.length, ui.selectionCleared, ui.cancelCrop, exportDialogOpen, showShortcutsHelp])
+  }, [selectedText, active, cropRect, cropPreviewDataUrl, tool, busy, selectedAssetIds.length, ui.selectionCleared, ui.cancelCrop, exportDialogOpen, showShortcutsHelp])
 
   useEffect(() => {
     return () => {
@@ -2594,6 +2606,10 @@ function App() {
     const ratio = clamp(((event.clientX - box.left) / Math.max(1, box.width)) * 100, 0, 100)
     setCropPreviewCompare(Math.round(ratio))
     setCropCompareDragging(true)
+  }
+
+  function adjustCropPreviewCompare(delta: number) {
+    setCropPreviewCompare((prev) => clamp(prev + delta, 0, 100))
   }
 
   function clearCropSelection(nextStatus?: string) {
@@ -5728,6 +5744,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                       <div className="cropCompareLabels">
                         <span>{ui.cropCompareBefore}</span>
                         <span>{ui.cropCompareAfter}</span>
+                      </div>
+                      <div className="cropCompareQuickRow">
+                        <button className="btn ghost" onClick={() => setCropPreviewCompare(25)}>{ui.cropCompareFocusLeft}</button>
+                        <button className="btn ghost" onClick={() => setCropPreviewCompare(50)}>{ui.cropCompareFocusCenter}</button>
+                        <button className="btn ghost" onClick={() => setCropPreviewCompare(75)}>{ui.cropCompareFocusRight}</button>
+                        <span className="cropCompareValue">{cropPreviewCompare}%</span>
                       </div>
                       <input
                         className="cropCompareSlider"
