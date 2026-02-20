@@ -314,7 +314,7 @@
 }
 
 .main {
-  --right-panel-w: 430px;
+  --right-panel-w: clamp(320px, 31vw, 430px);
   display: grid;
   grid-template-columns: 270px 1fr var(--right-panel-w);
   gap: 14px;
@@ -1211,6 +1211,10 @@
   align-items: center;
 }
 
+.settingsInline.exportDefaultsInline {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .settingsNumberInput {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -1446,14 +1450,20 @@
   gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .activitySaveScope {
-  min-width: 118px;
+  min-width: 136px;
   height: 30px;
   font-size: 11px;
   padding-top: 0;
   padding-bottom: 0;
+}
+
+.activityPanelActions .btn {
+  min-width: 0;
+  padding: 0 10px;
 }
 
 .activityPanelTitleRow .activityPanelTitle {
@@ -1558,74 +1568,6 @@
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.settingsSearchInput {
-  width: 100%;
-  margin-top: 6px;
-}
-
-.settingsSuggestRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.settingsHistoryRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-  align-items: center;
-}
-
-.settingsHistoryLabel {
-  margin-right: 2px;
-}
-
-.settingsHistoryItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.historyRemoveBtn {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.05);
-  color: #dcefff;
-  cursor: pointer;
-}
-
-.historyRemoveBtn:hover {
-  border-color: rgba(255, 124, 124, 0.55);
-  background: rgba(255, 124, 124, 0.16);
-}
-
-.settingsSuggestBtn {
-  height: 28px;
-  padding: 0 10px;
-}
-
-.settingsNoMatch {
-  margin: 4px 0;
-}
-
-.settingsRowMatch {
-  border: 1px solid rgba(100, 210, 255, 0.26);
-  border-radius: 10px;
-  padding: 8px;
-  background: rgba(100, 210, 255, 0.06);
-}
-
-.settingsMark {
-  background: rgba(100, 210, 255, 0.28);
-  color: #ecf8ff;
-  border-radius: 4px;
-  padding: 0 3px;
 }
 
 .mobileOrderList {
@@ -2059,6 +2001,12 @@
   padding: 14px;
   display: grid;
   gap: 10px;
+}
+
+.dialog.exportDialog {
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100dvh - 28px);
+  overflow: auto;
 }
 
 .dialogTitle {

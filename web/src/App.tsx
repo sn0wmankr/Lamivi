@@ -1,4 +1,4 @@
-import { type DragEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type DragEvent, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
 import { Circle, Image as KonvaImage, Layer, Line, Stage, Text, Group, Rect, Transformer } from 'react-konva'
 import { jsPDF } from 'jspdf'
@@ -104,10 +104,6 @@ function uid(prefix: string) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function splitFilename(name: string): { base: string; ext: string } {
@@ -748,15 +744,15 @@ const UI = {
     settingsTabGeneral: '일반',
     settingsTabEditing: '편집',
     settingsTabInfo: '정보',
-    settingsSearchPlaceholder: '설정 검색',
-    settingsNoMatch: '검색 조건에 맞는 설정이 없습니다.',
-    settingsRecentSearches: '최근 검색',
     settingsSuggestDevice: 'AI 엔진',
     settingsSuggestAutosave: '자동 저장',
     settingsSuggestDensity: 'UI 밀도',
     settingsSuggestAnimation: '애니메이션',
-    settingsRecentClear: '최근 검색 지우기',
-    settingsRecentRemove: (keyword: string) => `최근 검색 제거: ${keyword}`,
+    settingsExportDefaults: '내보내기 기본 설정',
+    settingsExportDefaultPreset: '기본 프리셋',
+    settingsExportDefaultCustom: '현재값 유지',
+    settingsExportDefaultApply: '기본값 적용',
+    settingsExportDefaultDone: '내보내기 기본 설정을 적용했습니다',
     settingsMobileQuickActions: '모바일 퀵 액션 바',
     settingsMobileQuickOrder: '퀵 액션 순서',
     settingsMobileActionExport: '내보내기',
@@ -771,8 +767,6 @@ const UI = {
     activityShow: '로그 보기',
     activityHide: '로그 닫기',
     activityCopy: '로그 복사',
-    activityShareView: '뷰 공유',
-    activityShareWithExport: '내보내기 옵션 포함',
     activityCopyItem: '항목 복사',
     activityJumpItem: '이 파일로 이동',
     activityPreviewOpen: '시점 미리보기',
@@ -789,7 +783,6 @@ const UI = {
     activityDownloadAll: '전체 저장',
     activityClear: '로그 비우기',
     activityCopied: '작업 로그를 복사했습니다',
-    activityShared: '현재 뷰 링크를 복사했습니다',
     activityDownloaded: (name: string) => `로그 저장 완료: ${name}`,
     activityCleared: '작업 로그를 비웠습니다',
     activityEmpty: '아직 작업 로그가 없습니다.',
@@ -1118,15 +1111,15 @@ const UI = {
     settingsTabGeneral: 'General',
     settingsTabEditing: 'Editing',
     settingsTabInfo: 'Info',
-    settingsSearchPlaceholder: 'Search settings',
-    settingsNoMatch: 'No settings match your search.',
-    settingsRecentSearches: 'Recent searches',
     settingsSuggestDevice: 'AI engine',
     settingsSuggestAutosave: 'Autosave',
     settingsSuggestDensity: 'UI density',
     settingsSuggestAnimation: 'Animation',
-    settingsRecentClear: 'Clear recent searches',
-    settingsRecentRemove: (keyword: string) => `Removed recent search: ${keyword}`,
+    settingsExportDefaults: 'Export defaults',
+    settingsExportDefaultPreset: 'Default preset',
+    settingsExportDefaultCustom: 'Keep current values',
+    settingsExportDefaultApply: 'Apply defaults',
+    settingsExportDefaultDone: 'Applied export defaults',
     settingsMobileQuickActions: 'Mobile quick action rail',
     settingsMobileQuickOrder: 'Quick action order',
     settingsMobileActionExport: 'Export',
@@ -1141,8 +1134,6 @@ const UI = {
     activityShow: 'Show log',
     activityHide: 'Hide log',
     activityCopy: 'Copy log',
-    activityShareView: 'Share view',
-    activityShareWithExport: 'Include export options',
     activityCopyItem: 'Copy item',
     activityJumpItem: 'Jump to file',
     activityPreviewOpen: 'Preview snapshot',
@@ -1159,7 +1150,6 @@ const UI = {
     activityDownloadAll: 'Save all',
     activityClear: 'Clear log',
     activityCopied: 'Activity log copied',
-    activityShared: 'Current view link copied',
     activityDownloaded: (name: string) => `Log saved: ${name}`,
     activityCleared: 'Activity log cleared',
     activityEmpty: 'No activity logs yet.',
@@ -1349,16 +1339,6 @@ function App() {
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
-  const [settingsSearch, setSettingsSearch] = useState('')
-  const [settingsSearchHistory, setSettingsSearchHistory] = useState<string[]>(() => {
-    try {
-      const raw = window.localStorage.getItem('lamivi-settings-search-history')
-      const parsed = raw ? JSON.parse(raw) : []
-      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string').slice(0, 5) : []
-    } catch {
-      return []
-    }
-  })
   const [showMobileQuickActions, setShowMobileQuickActions] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('lamivi-mobile-quick-actions') !== '0'
@@ -1408,13 +1388,6 @@ function App() {
     }
     return 'all'
   })
-  const [activityDownloadMode, setActivityDownloadMode] = useState<'filtered' | 'all'>(() => {
-    try {
-      return window.localStorage.getItem('lamivi-activity-download-mode') === 'all' ? 'all' : 'filtered'
-    } catch {
-      return 'filtered'
-    }
-  })
   const [activitySort, setActivitySort] = useState<'latest' | 'oldest'>(() => {
     try {
       return window.localStorage.getItem('lamivi-activity-sort') === 'oldest' ? 'oldest' : 'latest'
@@ -1422,11 +1395,35 @@ function App() {
       return 'latest'
     }
   })
-  const [shareWithExportSettings, setShareWithExportSettings] = useState<boolean>(() => {
+  const [activityDownloadMode, setActivityDownloadMode] = useState<'filtered' | 'all'>(() => {
     try {
-      return window.localStorage.getItem('lamivi-share-with-export') === '1'
+      return window.localStorage.getItem('lamivi-activity-download-mode') === 'all' ? 'all' : 'filtered'
     } catch {
-      return false
+      return 'filtered'
+    }
+  })
+  const [exportDefaultPreset, setExportDefaultPreset] = useState<'web' | 'print' | 'slides' | 'custom'>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-export-default-preset')
+      return saved === 'web' || saved === 'print' || saved === 'slides' || saved === 'custom' ? saved : 'custom'
+    } catch {
+      return 'custom'
+    }
+  })
+  const [exportDefaultFormat, setExportDefaultFormat] = useState<ExportKind>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-export-default-format')
+      return saved === 'png' || saved === 'jpg' || saved === 'webp' || saved === 'pdf' || saved === 'pptx' ? saved : 'png'
+    } catch {
+      return 'png'
+    }
+  })
+  const [exportDefaultScope, setExportDefaultScope] = useState<ExportScope>(() => {
+    try {
+      const saved = window.localStorage.getItem('lamivi-export-default-scope')
+      return saved === 'current' || saved === 'selected' || saved === 'all' ? saved : 'current'
+    } catch {
+      return 'current'
     }
   })
   const [activityLogLimit, setActivityLogLimit] = useState<number>(() => {
@@ -1731,11 +1728,27 @@ function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('lamivi-share-with-export', shareWithExportSettings ? '1' : '0')
+      window.localStorage.setItem('lamivi-export-default-preset', exportDefaultPreset)
     } catch {
       // ignore
     }
-  }, [shareWithExportSettings])
+  }, [exportDefaultPreset])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-export-default-format', exportDefaultFormat)
+    } catch {
+      // ignore
+    }
+  }, [exportDefaultFormat])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-export-default-scope', exportDefaultScope)
+    } catch {
+      // ignore
+    }
+  }, [exportDefaultScope])
 
   useEffect(() => {
     if (activityQueryInitRef.current) return
@@ -1773,14 +1786,6 @@ function App() {
       // ignore
     }
   }, [showActivityLog, activityFilter, activitySort])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('lamivi-settings-search-history', JSON.stringify(settingsSearchHistory.slice(0, 5)))
-    } catch {
-      // ignore
-    }
-  }, [settingsSearchHistory])
 
   useEffect(() => {
     try {
@@ -2048,19 +2053,19 @@ function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('lamivi-activity-download-mode', activityDownloadMode)
-    } catch {
-      // ignore
-    }
-  }, [activityDownloadMode])
-
-  useEffect(() => {
-    try {
       window.localStorage.setItem('lamivi-activity-sort', activitySort)
     } catch {
       // ignore
     }
   }, [activitySort])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-activity-download-mode', activityDownloadMode)
+    } catch {
+      // ignore
+    }
+  }, [activityDownloadMode])
 
   useEffect(() => {
     try {
@@ -3935,23 +3940,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
           ? ui.exportFormatHintPdf
           : ui.exportFormatHintPptx
   const exportSummaryText = `${ui.exportFormat}: ${pendingExportFormat.toUpperCase()} · ${pendingExportRatio}x${pendingExportFormat === 'jpg' || pendingExportFormat === 'webp' ? ` · ${ui.exportImageQuality}: ${pendingExportQuality}` : ''} · ${ui.exportScope}: ${pendingExportScope}`
-  const settingsQueryLower = settingsSearch.trim().toLowerCase()
-  const matchSetting = (label: string) => settingsQueryLower.length === 0 || label.toLowerCase().includes(settingsQueryLower)
-  const settingRowClass = (label: string) => settingsQueryLower.length > 0 && matchSetting(label) ? 'settingsRow settingsRowMatch' : 'settingsRow'
-  const renderSettingLabel = (label: string): ReactNode => {
-    if (!settingsQueryLower) return label
-    const escaped = escapeRegExp(settingsQueryLower)
-    if (!escaped) return label
-    const re = new RegExp(`(${escaped})`, 'ig')
-    const parts = label.split(re)
-    if (parts.length <= 1) return label
-    return parts.map((part, idx) => {
-      if (part.toLowerCase() === settingsQueryLower) {
-        return <mark className="settingsMark" key={`${label}-mark-${idx}`}>{part}</mark>
-      }
-      return <span key={`${label}-text-${idx}`}>{part}</span>
-    })
-  }
+  const settingRowClass = 'settingsRow'
   const recentDirtySummaries = useMemo(() => {
     const seen = new Set<string>()
     const picked: string[] = []
@@ -3968,7 +3957,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     lastDirtyAt ? ui.unsavedUpdatedAt(formatTimestamp(lastDirtyAt)) : ui.unsavedBadge,
     recentDirtySummaries.length > 0 ? `${ui.unsavedRecentChanges}: ${recentDirtySummaries.join(' · ')}` : null,
   ].filter(Boolean).join('\n')
-  const settingsSuggestions = [ui.settingsSuggestDevice, ui.settingsSuggestAutosave, ui.settingsSuggestDensity, ui.settingsSuggestAnimation]
   const activityPreviewCurrentBase = useMemo(() => {
     const cached = activityPreview?.current?.baseDataUrl
     if (cached) return cached
@@ -3977,13 +3965,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     const found = assets.find((asset) => asset.id === previewAssetId)
     return found?.baseDataUrl ?? null
   }, [activityPreview, assets])
-  const hasSettingsMatch = settingsQueryLower.length === 0 || (
-    settingsTab === 'general'
-      ? [ui.settingsLanguage, ui.settingsAiRestoreDefault, ui.settingsAutoSave, ui.settingsActivityLogLimit, ui.settingsCropHideDocks, ui.settingsGuide, ui.settingsMobileQuickActions, ui.settingsMobileQuickOrder, ui.settingsResetGeneral, ui.settingsResetExport, ui.settingsResetDefaults].some(matchSetting)
-      : settingsTab === 'editing'
-        ? [ui.settingsBrushDefault, ui.settingsShortcutTips, ui.settingsTooltipDensity, ui.settingsAnimationStrength, ui.settingsUiDensity, ui.settingsResetEditing].some(matchSetting)
-        : [ui.settingsInfo, ui.settingsDeveloper, ui.settingsDockerHub, ui.settingsGitHub, ui.settingsDocs, ui.settingsRepo].some(matchSetting)
-  )
 
   function startQuickBarDrag(e: ReactMouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -4051,12 +4032,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   }
 
   function closeSettings() {
-    const trimmed = settingsSearch.trim()
-    if (trimmed) {
-      setSettingsSearchHistory((prev) => [trimmed, ...prev.filter((v) => v !== trimmed)].slice(0, 5))
-    }
     setSettingsOpen(false)
-    setSettingsSearch('')
   }
 
   function flashGuideTarget(target: 'files' | 'tools' | 'canvas' | 'export') {
@@ -4155,15 +4131,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setActivityPreview(null)
   }
 
-  function clearSettingsSearchHistory() {
-    setSettingsSearchHistory([])
-  }
-
-  function removeSettingsSearchHistoryItem(keyword: string) {
-    setSettingsSearchHistory((prev) => prev.filter((item) => item !== keyword))
-    setStatus(ui.settingsRecentRemove(keyword))
-  }
-
   function triggerHaptic() {
     try {
       if ('vibrate' in navigator) navigator.vibrate(12)
@@ -4250,41 +4217,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       setStatus(message)
       longPressTimerRef.current = null
     }, 460)
-  }
-
-  async function copyCurrentViewLink() {
-    const url = new URL(window.location.href)
-    if (shareWithExportSettings) {
-      url.searchParams.set('exportFormat', pendingExportFormat)
-      url.searchParams.set('exportRatio', String(pendingExportRatio))
-      url.searchParams.set('exportScope', pendingExportScope)
-      url.searchParams.set('exportQuality', String(pendingExportQuality))
-    } else {
-      url.searchParams.delete('exportFormat')
-      url.searchParams.delete('exportRatio')
-      url.searchParams.delete('exportScope')
-      url.searchParams.delete('exportQuality')
-    }
-    const text = url.toString()
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text)
-      } else {
-        const ta = document.createElement('textarea')
-        ta.value = text
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        ta.style.pointerEvents = 'none'
-        document.body.appendChild(ta)
-        ta.focus()
-        ta.select()
-        document.execCommand('copy')
-        document.body.removeChild(ta)
-      }
-      setStatus(ui.activityShared)
-    } catch {
-      setStatus(text)
-    }
   }
 
   async function copyDockerHubLink() {
@@ -4492,6 +4424,29 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     setPendingExportRatio(2)
     setPendingExportScope('current')
     setPendingExportQuality(DEFAULT_EXPORT_QUALITY)
+    setExportDefaultPreset('custom')
+    setExportDefaultFormat('png')
+    setExportDefaultScope('current')
+  }
+
+  function applyExportDefaults() {
+    let nextRatio = pendingExportRatio
+    let nextQuality = pendingExportQuality
+    if (exportDefaultPreset === 'web') {
+      nextRatio = 2
+      nextQuality = 84
+    } else if (exportDefaultPreset === 'print') {
+      nextRatio = 4
+      nextQuality = 95
+    } else if (exportDefaultPreset === 'slides') {
+      nextRatio = 2
+      nextQuality = DEFAULT_EXPORT_QUALITY
+    }
+    setPendingExportFormat(exportDefaultFormat)
+    setPendingExportScope(exportDefaultScope)
+    setPendingExportRatio(nextRatio)
+    setPendingExportQuality(nextQuality)
+    setStatus(ui.settingsExportDefaultDone)
   }
 
   async function setDeviceMode(next: 'cpu' | 'cuda') {
@@ -4661,42 +4616,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <div className="settingsTitle">{ui.settingsTitle}</div>
               <button className="settingsCloseBtn" onClick={closeSettings}>{ui.settingsClose}</button>
             </div>
-            <input
-              className="input settingsSearchInput"
-              value={settingsSearch}
-              onChange={(e) => setSettingsSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return
-                e.preventDefault()
-                const root = e.currentTarget.closest('.settingsDialog') as HTMLElement | null
-                const first = root?.querySelector<HTMLElement>('.settingsRowMatch button, .settingsRowMatch select, .settingsRowMatch input')
-                first?.focus()
-              }}
-              placeholder={ui.settingsSearchPlaceholder}
-              aria-label={ui.settingsSearchPlaceholder}
-            />
-            <div className="settingsSuggestRow">
-              {settingsSuggestions.map((keyword) => (
-                <button key={keyword} className="tabBtn settingsSuggestBtn" onClick={() => setSettingsSearch(keyword)}>
-                  {keyword}
-                </button>
-              ))}
-            </div>
-            {settingsSearchHistory.length > 0 ? (
-              <div className="settingsHistoryRow">
-                <span className="hint settingsHistoryLabel">{ui.settingsRecentSearches}</span>
-                {settingsSearchHistory.map((keyword) => (
-                  <span key={`history-${keyword}`} className="settingsHistoryItem">
-                    <button className="tabBtn settingsSuggestBtn" onClick={() => setSettingsSearch(keyword)}>
-                      {keyword}
-                    </button>
-                    <button className="historyRemoveBtn" onClick={() => removeSettingsSearchHistoryItem(keyword)} aria-label={ui.settingsRecentRemove(keyword)} title={ui.settingsRecentRemove(keyword)}>×</button>
-                  </span>
-                ))}
-                <button className="btn ghost" onClick={clearSettingsSearchHistory}>{ui.settingsRecentClear}</button>
-              </div>
-            ) : null}
-
             <div className="settingsLayout">
               <div className="settingsSidebar">
                 <div className="settingsTabs">
@@ -4713,10 +4632,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               </div>
 
               <div className="settingsContent">
-            {!hasSettingsMatch ? <div className="hint settingsNoMatch">{ui.settingsNoMatch}</div> : null}
-            {settingsTab === 'general' && matchSetting(ui.settingsLanguage) ? (
-            <div className={settingRowClass(ui.settingsLanguage)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsLanguage)}</div>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsLanguage}</div>
               <select className="langSelect settingsLangSelect" value={locale} onChange={(e) => setLocale(e.target.value as Locale)} aria-label={ui.language}>
                 {LANGUAGE_OPTIONS.map((option) => (
                   <option key={option.code} value={option.code}>{option.label}</option>
@@ -4725,9 +4643,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsAiRestoreDefault) ? (
-            <div className={settingRowClass(ui.settingsAiRestoreDefault)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsAiRestoreDefault)}</div>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsAiRestoreDefault}</div>
               <select className="langSelect settingsLangSelect" value={preferredDevice} onChange={(e) => void setDeviceMode(e.target.value as 'cpu' | 'cuda')}>
                 <option value="cpu">{ui.aiSetCpu} ({ui.available})</option>
                 <option value="cuda" disabled={!gpuSelectable}>{ui.aiSetGpu} ({gpuSelectable ? ui.available : ui.unavailable})</option>
@@ -4735,9 +4653,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' && matchSetting(ui.settingsBrushDefault) ? (
-            <div className={settingRowClass(ui.settingsBrushDefault)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsBrushDefault)}</div>
+            {settingsTab === 'editing' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsBrushDefault}</div>
               <div className="settingsInline">
                 <input
                   className="input settingsNumberInput"
@@ -4760,9 +4678,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsAutoSave) ? (
-            <div className={settingRowClass(ui.settingsAutoSave)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsAutoSave)}</div>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsAutoSave}</div>
               <select className="langSelect settingsLangSelect" value={String(autoSaveSeconds)} onChange={(e) => setAutoSaveSeconds(clamp(Number(e.target.value), 0, 300))}>
                 <option value="0">{ui.settingsAutoSaveOff}</option>
                 <option value="10">10s</option>
@@ -4774,9 +4692,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsActivityLogLimit) ? (
-            <div className={settingRowClass(ui.settingsActivityLogLimit)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsActivityLogLimit)}</div>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsActivityLogLimit}</div>
               <select className="langSelect settingsLangSelect" value={String(activityLogLimit)} onChange={(e) => setActivityLogLimit(clamp(Number(e.target.value), 5, 20))}>
                 <option value="5">5</option>
                 <option value="10">10</option>
@@ -4785,27 +4703,27 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsCropHideDocks) ? (
-            <div className={settingRowClass(ui.settingsCropHideDocks)}>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={cropHideDocksOnCrop} onChange={(e) => setCropHideDocksOnCrop(e.target.checked)} />
-                <span>{renderSettingLabel(ui.settingsCropHideDocks)}</span>
+                <span>{ui.settingsCropHideDocks}</span>
               </label>
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsMobileQuickActions) ? (
-            <div className={settingRowClass(ui.settingsMobileQuickActions)}>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={showMobileQuickActions} onChange={(e) => setShowMobileQuickActions(e.target.checked)} />
-                <span>{renderSettingLabel(ui.settingsMobileQuickActions)}</span>
+                <span>{ui.settingsMobileQuickActions}</span>
               </label>
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsMobileQuickOrder) ? (
-            <div className={settingRowClass(ui.settingsMobileQuickOrder)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsMobileQuickOrder)}</div>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsMobileQuickOrder}</div>
               <div className="mobileOrderList">
                 {mobileQuickOrder.map((action, idx) => (
                   <div
@@ -4832,41 +4750,70 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'general' && (matchSetting(ui.settingsResetGeneral) || matchSetting(ui.settingsResetExport) || matchSetting(ui.settingsResetDefaults)) ? (
-            <div className={`${settingRowClass(ui.settingsResetDefaults)} settingsActionRow`}>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsExportDefaults}</div>
+              <div className="settingsInline exportDefaultsInline">
+                <select className="langSelect settingsLangSelect" value={exportDefaultFormat} onChange={(e) => setExportDefaultFormat(e.target.value as ExportKind)}>
+                  <option value="png">PNG</option>
+                  <option value="jpg">JPG</option>
+                  <option value="webp">WEBP</option>
+                  <option value="pdf">PDF</option>
+                  <option value="pptx">PPTX</option>
+                </select>
+                <select className="langSelect settingsLangSelect" value={exportDefaultPreset} onChange={(e) => setExportDefaultPreset(e.target.value as 'web' | 'print' | 'slides' | 'custom')}>
+                  <option value="web">{ui.exportPresetWeb}</option>
+                  <option value="print">{ui.exportPresetPrint}</option>
+                  <option value="slides">{ui.exportPresetSlides}</option>
+                  <option value="custom">{ui.settingsExportDefaultCustom}</option>
+                </select>
+              </div>
+              <select className="langSelect settingsLangSelect" value={exportDefaultScope} onChange={(e) => setExportDefaultScope(e.target.value as ExportScope)}>
+                <option value="current">{ui.exportScopeCurrent}</option>
+                <option value="selected">{ui.exportScopeSelected}</option>
+                <option value="all">{ui.exportScopeAll}</option>
+              </select>
+              <div className="settingsActionRow">
+                <button className="btn" onClick={applyExportDefaults}>{ui.settingsExportDefaultApply}</button>
+              </div>
+            </div>
+            ) : null}
+
+            {settingsTab === 'general' ? (
+            <div className={`${settingRowClass} settingsActionRow`}>
               <button className="btn ghost" onClick={resetGeneralSettings}>{ui.settingsResetGeneral}</button>
               <button className="btn ghost" onClick={resetExportSettings}>{ui.settingsResetExport}</button>
               <button className="btn ghost" onClick={resetSettingsToDefaults}>{ui.settingsResetDefaults}</button>
             </div>
             ) : null}
 
-            {settingsTab === 'editing' && matchSetting(ui.settingsResetEditing) ? (
-            <div className={`${settingRowClass(ui.settingsResetEditing)} settingsActionRow`}>
+            {settingsTab === 'editing' ? (
+            <div className={`${settingRowClass} settingsActionRow`}>
               <button className="btn ghost" onClick={resetEditingSettings}>{ui.settingsResetEditing}</button>
             </div>
             ) : null}
 
-            {settingsTab === 'general' && matchSetting(ui.settingsGuide) ? (
-            <div className={settingRowClass(ui.settingsGuide)}>
+            {settingsTab === 'general' ? (
+            <div className={settingRowClass}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} />
-                <span>{renderSettingLabel(ui.settingsGuide)}</span>
+                <span>{ui.settingsGuide}</span>
               </label>
             </div>
             ) : null}
 
-            {settingsTab === 'editing' && matchSetting(ui.settingsShortcutTips) ? (
-            <div className={settingRowClass(ui.settingsShortcutTips)}>
+            {settingsTab === 'editing' ? (
+            <div className={settingRowClass}>
               <label className="settingsToggle">
                 <input type="checkbox" checked={showShortcutTips} onChange={(e) => setShowShortcutTips(e.target.checked)} />
-                <span>{renderSettingLabel(ui.settingsShortcutTips)}</span>
+                <span>{ui.settingsShortcutTips}</span>
               </label>
             </div>
             ) : null}
 
-            {settingsTab === 'editing' && matchSetting(ui.settingsTooltipDensity) ? (
-            <div className={settingRowClass(ui.settingsTooltipDensity)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsTooltipDensity)}</div>
+            {settingsTab === 'editing' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsTooltipDensity}</div>
               <select className="langSelect settingsLangSelect" value={tooltipDensity} onChange={(e) => setTooltipDensity(e.target.value as TooltipDensity)}>
                 <option value="simple">{ui.settingsTooltipSimple}</option>
                 <option value="detailed">{ui.settingsTooltipDetailed}</option>
@@ -4874,9 +4821,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' && matchSetting(ui.settingsAnimationStrength) ? (
-            <div className={settingRowClass(ui.settingsAnimationStrength)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsAnimationStrength)}</div>
+            {settingsTab === 'editing' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsAnimationStrength}</div>
               <select className="langSelect settingsLangSelect" value={animationStrength} onChange={(e) => setAnimationStrength(e.target.value as AnimationStrength)}>
                 <option value="low">{ui.settingsAnimationLow}</option>
                 <option value="default">{ui.settingsAnimationDefault}</option>
@@ -4885,9 +4832,9 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'editing' && matchSetting(ui.settingsUiDensity) ? (
-            <div className={settingRowClass(ui.settingsUiDensity)}>
-              <div className="settingsLabel">{renderSettingLabel(ui.settingsUiDensity)}</div>
+            {settingsTab === 'editing' ? (
+            <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsUiDensity}</div>
               <select className="langSelect settingsLangSelect" value={uiDensity} onChange={(e) => setUiDensity(e.target.value as 'default' | 'compact')}>
                 <option value="default">{ui.settingsDensityDefault}</option>
                 <option value="compact">{ui.settingsDensityCompact}</option>
@@ -4895,7 +4842,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             </div>
             ) : null}
 
-            {settingsTab === 'info' && (matchSetting(ui.settingsInfo) || matchSetting(ui.settingsDeveloper) || matchSetting(ui.settingsDockerHub) || matchSetting(ui.settingsGitHub) || matchSetting(ui.settingsDocs) || matchSetting(ui.settingsRepo)) ? (
+            {settingsTab === 'info' ? (
             <div className="settingsInfo">
               <div className="settingsInfoTitle">{ui.settingsInfo}</div>
               <div className="settingsInfoRow"><strong>{ui.settingsDeveloper}</strong><span>{ui.settingsName}</span></div>
@@ -5040,6 +4987,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 ✨
               </button>
               <button
+                className={`iconDockBtn ${tool === 'move' ? 'active' : ''}`}
+                title={ui.move}
+                aria-label={ui.move}
+                data-tip={ui.move}
+                data-key="M"
+                onClick={() => setTool('move')}
+              >
+                ✥
+              </button>
+              <button
                 className={`iconDockBtn ${tool === 'eraser' ? 'active' : ''}`}
                 title={ui.aiEraser}
                 aria-label={ui.aiEraser}
@@ -5070,14 +5027,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 ▣
               </button>
               <button
-                className={`iconDockBtn ${tool === 'move' ? 'active' : ''}`}
-                title={ui.move}
-                aria-label={ui.move}
-                data-tip={ui.move}
-                data-key="M"
-                onClick={() => setTool('move')}
+                className="iconDockBtn"
+                title={ui.zoomReset}
+                aria-label={ui.zoomReset}
+                data-tip={ui.zoomReset}
+                onClick={() => {
+                  setZoom(1)
+                  setCanvasOffset({ x: 0, y: 0 })
+                }}
               >
-                ✥
+                ◎
               </button>
             </div>
           ) : null}
@@ -5950,11 +5909,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 <option value="all">{ui.activityDownloadAll}</option>
               </select>
               <button className="btn" onClick={() => void copyActivityLog()} disabled={filteredToastLog.length === 0}>{ui.activityCopy}</button>
-              <button className="btn" onClick={() => void copyCurrentViewLink()}>{ui.activityShareView}</button>
-              <label className="activityShareToggle">
-                <input type="checkbox" checked={shareWithExportSettings} onChange={(e) => setShareWithExportSettings(e.target.checked)} />
-                <span>{ui.activityShareWithExport}</span>
-              </label>
               <button className="btn" onClick={downloadActivityLog} disabled={activityDownloadMode === 'all' ? toastLog.length === 0 : filteredToastLog.length === 0}>{ui.activityDownload}</button>
               <button className="btn" onClick={clearActivityLog} disabled={toastLog.length === 0}>{ui.activityClear}</button>
             </div>
@@ -6096,7 +6050,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       ) : null}
       {exportDialogOpen ? (
         <div className="dialogBackdrop" onClick={() => setExportDialogOpen(false)}>
-          <div className="dialog" ref={exportDialogRef} onClick={(e) => e.stopPropagation()}>
+          <div className="dialog exportDialog" ref={exportDialogRef} onClick={(e) => e.stopPropagation()}>
             <div className="dialogTitle">{ui.exportDialogTitle}</div>
             <div className="dialogHint">{ui.exportDialogDesc}</div>
             <div>
