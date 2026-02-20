@@ -25,11 +25,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
 RUN apt-get update \
+  && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends \
     curl \
     python3 \
     python3-venv \
-    python3-pip \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
@@ -42,12 +42,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # LaMa runtime env (GPU-first with CPU fallback).
 RUN python3 -m venv /opt/venv-lama \
-  && /opt/venv-lama/bin/python -m pip install --no-cache-dir --upgrade pip \
+  && /opt/venv-lama/bin/python -m pip install --no-cache-dir --upgrade "pip>=24.3.1" "setuptools>=78.1.1" "wheel>=0.46.3" \
   && /opt/venv-lama/bin/python -m pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu128 \
     torch==2.9.1 torchvision==0.24.1 \
   && /opt/venv-lama/bin/python -m pip install --no-cache-dir \
-    fire==0.5.0 pillow==10.4.0 numpy==1.26.4 opencv-python==4.10.0.84 \
+    fire==0.5.0 "pillow>=11.0.0" "filelock>=3.20.3" numpy==1.26.4 opencv-python==4.10.0.84 \
   && /opt/venv-lama/bin/python -m pip install --no-cache-dir \
     --no-deps simple-lama-inpainting==0.1.2
 
