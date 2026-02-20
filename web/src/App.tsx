@@ -744,10 +744,6 @@ const UI = {
     settingsTabGeneral: '일반',
     settingsTabEditing: '편집',
     settingsTabInfo: '정보',
-    settingsSuggestDevice: 'AI 엔진',
-    settingsSuggestAutosave: '자동 저장',
-    settingsSuggestDensity: 'UI 밀도',
-    settingsSuggestAnimation: '애니메이션',
     settingsExportDefaults: '내보내기 기본 설정',
     settingsExportDefaultPreset: '기본 프리셋',
     settingsExportDefaultCustom: '현재값 유지',
@@ -1111,10 +1107,6 @@ const UI = {
     settingsTabGeneral: 'General',
     settingsTabEditing: 'Editing',
     settingsTabInfo: 'Info',
-    settingsSuggestDevice: 'AI engine',
-    settingsSuggestAutosave: 'Autosave',
-    settingsSuggestDensity: 'UI density',
-    settingsSuggestAnimation: 'Animation',
     settingsExportDefaults: 'Export defaults',
     settingsExportDefaultPreset: 'Default preset',
     settingsExportDefaultCustom: 'Keep current values',
@@ -3858,7 +3850,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
   const normalizedRestoreDevice = aiDevice.toLowerCase()
   const restoreDeviceLabel = normalizedRestoreDevice.includes('cuda') || normalizedRestoreDevice.includes('gpu') ? 'GPU' : normalizedRestoreDevice.includes('cpu') ? 'CPU' : 'AUTO'
   const requestedDeviceLabel = aiRequestedDevice === 'cuda' ? 'GPU' : aiRequestedDevice === 'cpu' ? 'CPU' : 'AUTO'
-  const releaseTrack = APP_VERSION.toLowerCase().includes('dev') ? 'dev' : 'latest'
   const aiStatusText = aiReady ? ui.aiReady : ui.aiInit
   const gpuSelectable = cudaAvailable !== false
   const selectedEngine = aiRequestedDevice === 'cuda' ? 'GPU' : 'CPU'
@@ -4497,7 +4488,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       <div className="topbar">
         <div className="brand">
           <h1>Lamivi</h1>
-          <span className="brandMeta">{ui.topVersionTag(APP_VERSION, releaseTrack)}</span>
         </div>
 
         <div className="rightControls">
