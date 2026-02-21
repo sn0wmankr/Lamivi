@@ -60,6 +60,7 @@ type ShortcutCategory = 'tools' | 'selection' | 'history'
 type MobileQuickAction = 'export' | 'activity' | 'shortcuts' | 'settings'
 type CropHandle = 'nw' | 'ne' | 'sw' | 'se'
 type CropPreset = 'free' | 'full' | '1:1' | '4:3' | '16:9'
+type TextClickEditMode = 'single' | 'double'
 
 type ToastLogItem = {
   id: string
@@ -176,6 +177,32 @@ function toKonvaFontStyle(item: Pick<TextItem, 'fontWeight' | 'fontStyle'>): str
   if (bold) return 'bold'
   if (item.fontStyle === 'italic') return 'italic'
   return 'normal'
+}
+
+function estimateTextBoxForAsset(text: string, item: TextItem, asset: PageAsset): { width: number; height: number } {
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      width: clamp(Math.round(item.fontSize * Math.max(2, text.length * 0.62)), 24, asset.width),
+      height: clamp(Math.round(item.fontSize * 1.35), 12, asset.height),
+    }
+  }
+
+  const weight = item.fontWeight >= 600 ? 'bold ' : ''
+  const italic = item.fontStyle === 'italic' ? 'italic ' : ''
+  const fontSize = clamp(Math.round(item.fontSize), 8, 320)
+  ctx.font = `${italic}${weight}${fontSize}px "${item.fontFamily}", "Pretendard", "Noto Sans KR", sans-serif`
+  const lines = text.split(/\r?\n/)
+  let maxWidth = 0
+  for (const line of lines) {
+    const w = Math.ceil(ctx.measureText(line || ' ').width)
+    if (w > maxWidth) maxWidth = w
+  }
+  const width = clamp(maxWidth + 12, 24, Math.max(24, asset.width - item.x))
+  const lineHeight = Math.max(14, Math.round(fontSize * 1.3))
+  const height = clamp(lineHeight * Math.max(1, lines.length), 14, Math.max(14, asset.height - item.y))
+  return { width, height }
 }
 
 function useElementSize<T extends HTMLElement>() {
@@ -427,6 +454,26 @@ async function renderAssetToDataUrl(
 
   for (const t of asset.texts) {
     if (!t.visible) continue
+    const box = estimateTextBoxForAsset(t.text, t, asset)
+    const padX = 8
+    const padY = 5
+    const outlineColor = resolveTextOutlineColor(t)
+    const backgroundColor = resolveTextBackgroundColor(t)
+    const backgroundOpacity = resolveTextBackgroundOpacity(t)
+    if (backgroundOpacity > 0.001) {
+      layer.add(
+        new Konva.Rect({
+          x: t.x - padX,
+          y: t.y - padY,
+          width: box.width + padX * 2,
+          height: box.height + padY * 2,
+          fill: backgroundColor,
+          opacity: backgroundOpacity,
+          rotation: t.rotation,
+          listening: false,
+        }),
+      )
+    }
     layer.add(
       new Konva.Text({
         x: t.x,
@@ -439,6 +486,9 @@ async function renderAssetToDataUrl(
         rotation: t.rotation,
         align: t.align,
         opacity: t.opacity,
+        stroke: outlineColor,
+        strokeWidth: 1.2,
+        paintStrokeEnabled: true,
       }),
     )
   }
@@ -449,21 +499,14 @@ async function renderAssetToDataUrl(
   return dataUrl
 }
 
-const FONT_FAMILIES = [
-  'IBM Plex Sans',
-  'Chosunilbo_myungjo',
-  'Fraunces',
-  'Georgia',
-  'Times New Roman',
-  'Arial',
-  'Courier New',
-]
-
 const DEFAULT_TEXT: Omit<TextItem, 'id' | 'x' | 'y'> = {
   text: 'Text',
   fontFamily: 'IBM Plex Sans',
   fontSize: 42,
-  fill: '#ffffff',
+  fill: '#111111',
+  outlineColor: '#ffffff',
+  backgroundColor: '#ffffff',
+  backgroundOpacity: 0.2,
   fontWeight: 500,
   fontStyle: 'normal',
   rotation: 0,
@@ -474,7 +517,19 @@ const DEFAULT_TEXT: Omit<TextItem, 'id' | 'x' | 'y'> = {
   groupId: 'group-default',
 }
 
-const COLOR_SWATCHES = ['#ffffff', '#f8fafc', '#111827', '#ef4444', '#f59e0b', '#22c55e', '#0ea5e9', '#a855f7']
+function resolveTextOutlineColor(item: TextItem): string {
+  return item.outlineColor ?? '#ffffff'
+}
+
+function resolveTextBackgroundColor(item: TextItem): string {
+  return item.backgroundColor ?? '#ffffff'
+}
+
+function resolveTextBackgroundOpacity(item: TextItem): number {
+  const value = item.backgroundOpacity
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0.2
+  return clamp(value, 0, 1)
+}
 
 const LANGUAGE_OPTIONS: Array<{ code: Locale; label: string }> = [
   { code: 'ko', label: '한국어' },
@@ -624,7 +679,7 @@ const UI = {
     zoomOut: '축소',
     zoomReset: '배율 초기화',
     zoomSlider: '확대/축소 스크롤',
-    zoomHintCtrlWheel: '캔버스 위에서 Ctrl + 휠로 확대/축소',
+    zoomHintCtrlWheel: '캔버스 위에서 Ctrl/Shift + 휠로 확대/축소',
     cropSelection: '잘라내기 영역',
     cropX: 'X',
     cropY: 'Y',
@@ -675,6 +730,10 @@ const UI = {
     font: '글꼴',
     size: '크기',
     color: '색상',
+    textColor: '글자 색상',
+    textBorderColor: '테두리 색상',
+    textBackgroundColor: '배경 색상',
+    textBackgroundOpacity: '배경 투명도',
     rotation: '회전',
     align: '정렬',
     alignLeft: '왼쪽',
@@ -730,6 +789,9 @@ const UI = {
     settingsResetEditing: '편집 초기화',
     settingsResetExport: '내보내기 초기화',
     settingsShortcutTips: '단축키 툴팁 표시',
+    settingsTextClickEditMode: '텍스트 클릭 편집 방식',
+    settingsTextClickEditSingle: '한 번 클릭 시 바로 편집',
+    settingsTextClickEditDouble: '한 번 클릭 선택, 두 번 클릭 편집',
     settingsTooltipDensity: '툴팁 밀도',
     settingsTooltipSimple: '간단',
     settingsTooltipDetailed: '상세',
@@ -839,7 +901,7 @@ const UI = {
     shortcutsNoMatch: '검색 결과가 없습니다.',
     shortcutCopied: (keyLabel: string) => `단축키 복사: ${keyLabel}`,
     shortcutsClose: '닫기',
-    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · 0 전체영역 · 방향키 이동 · Alt+방향키 크기조절 · [/] 비교 이동 · 1/2/3/R 비교 프리셋 · Home/End 극단 이동 · Esc 선택/자르기 해제',
+    shortcutsList: 'B 복원 · E 지우개 · T 텍스트 · C 자르기 · M 이동 · Ctrl/Shift+휠 확대/축소 · Ctrl/Cmd+Z 되돌리기 · Shift+Ctrl/Cmd+Z 다시실행 · Shift+클릭 다중선택 · I 선택 반전 · Alt+L 로그 비우기 · Enter 자르기 적용 · P 자르기 미리보기 · 0 전체영역 · 방향키 이동 · Alt+방향키 크기조절 · [/] 비교 이동 · 1/2/3/R 비교 프리셋 · Home/End 극단 이동 · Esc 선택/자르기 해제',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `전체 파일 ${count}개에 적용할까요?`,
     macroConfirmSelected: (count: number) => `선택 파일 ${count}개에 적용할까요?`,
@@ -987,7 +1049,7 @@ const UI = {
     zoomOut: 'Zoom out',
     zoomReset: 'Reset zoom',
     zoomSlider: 'Zoom slider',
-    zoomHintCtrlWheel: 'Use Ctrl + wheel over canvas to zoom',
+    zoomHintCtrlWheel: 'Use Ctrl/Shift + wheel over canvas to zoom',
     cropSelection: 'Crop area',
     cropX: 'X',
     cropY: 'Y',
@@ -1038,6 +1100,10 @@ const UI = {
     font: 'Font',
     size: 'Size',
     color: 'Color',
+    textColor: 'Text color',
+    textBorderColor: 'Border color',
+    textBackgroundColor: 'Background color',
+    textBackgroundOpacity: 'Background opacity',
     rotation: 'Rotation',
     align: 'Align',
     alignLeft: 'Left',
@@ -1093,6 +1159,9 @@ const UI = {
     settingsResetEditing: 'Reset editing',
     settingsResetExport: 'Reset export',
     settingsShortcutTips: 'Show shortcut tooltips',
+    settingsTextClickEditMode: 'Text click edit mode',
+    settingsTextClickEditSingle: 'Single click edits immediately',
+    settingsTextClickEditDouble: 'Single click selects, double click edits',
     settingsTooltipDensity: 'Tooltip density',
     settingsTooltipSimple: 'Simple',
     settingsTooltipDetailed: 'Detailed',
@@ -1202,7 +1271,7 @@ const UI = {
     shortcutsNoMatch: 'No matching shortcuts.',
     shortcutCopied: (keyLabel: string) => `Shortcut copied: ${keyLabel}`,
     shortcutsClose: 'Close',
-    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · 0 Full frame · Arrows move · Alt+arrows resize · [/] Compare shift · 1/2/3/R Compare presets · Home/End extremes · Esc Clear selection/crop',
+    shortcutsList: 'B Restore · E Eraser · T Text · C Crop · M Move · Ctrl/Shift+wheel Zoom · Ctrl/Cmd+Z Undo · Shift+Ctrl/Cmd+Z Redo · Shift+click Multi-select · I Invert selection · Alt+L Clear log · Enter Apply crop · P Preview crop · 0 Full frame · Arrows move · Alt+arrows resize · [/] Compare shift · 1/2/3/R Compare presets · Home/End extremes · Esc Clear selection/crop',
     topVersionTag: (version: string, track: string) => `v${version} · ${track}`,
     macroConfirmAll: (count: number) => `Apply to all ${count} files?`,
     macroConfirmSelected: (count: number) => `Apply to ${count} selected files?`,
@@ -1454,6 +1523,13 @@ function App() {
       return true
     }
   })
+  const [textClickEditMode, setTextClickEditMode] = useState<TextClickEditMode>(() => {
+    try {
+      return window.localStorage.getItem('lamivi-text-click-edit-mode') === 'double' ? 'double' : 'single'
+    } catch {
+      return 'single'
+    }
+  })
   const [tooltipsMuted, setTooltipsMuted] = useState(false)
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
   const [shortcutsQuery, setShortcutsQuery] = useState('')
@@ -1538,7 +1614,6 @@ function App() {
   const [quickBarOffset, setQuickBarOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [draggingQuickBar, setDraggingQuickBar] = useState(false)
   const [quickBarCollapsed, setQuickBarCollapsed] = useState(false)
-  const [textOptionsMode, setTextOptionsMode] = useState<'simple' | 'advanced'>('simple')
   const quickBarDragRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null)
   const movePanRef = useRef<{ x: number; y: number } | null>(null)
   const assetCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -1810,6 +1885,14 @@ function App() {
       // ignore
     }
   }, [showShortcutTips])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('lamivi-text-click-edit-mode', textClickEditMode)
+    } catch {
+      // ignore
+    }
+  }, [textClickEditMode])
 
   useEffect(() => {
     try {
@@ -2790,7 +2873,7 @@ function App() {
   }
 
   function onCanvasWrapWheel(e: ReactWheelEvent<HTMLDivElement>) {
-    if (!e.ctrlKey) return
+    if (!e.ctrlKey && !e.metaKey && !e.shiftKey) return
     e.preventDefault()
     zoomFromWheel(e.deltaY)
   }
@@ -2867,11 +2950,6 @@ function App() {
   function updateActiveWithHistory(label: string, mutator: (a: PageAsset) => PageAsset) {
     if (!active) return
     updateAssetByIdWithHistory(active.id, label, mutator)
-  }
-
-  function clearTexts() {
-    updateActiveWithHistory('Clear texts', (a) => ({ ...a, texts: [] }))
-    setSelectedTextId(null)
   }
 
   function toggleLayerVisible(id: string) {
@@ -2998,8 +3076,8 @@ function App() {
     }
   }
 
-  function addTextAt(x: number, y: number) {
-    if (!active) return
+  function addTextAt(x: number, y: number): TextItem | null {
+    if (!active) return null
     const item: TextItem = {
       id: uid('text'),
       x,
@@ -3009,14 +3087,7 @@ function App() {
     }
     updateActiveWithHistory('Add text layer', (a) => ({ ...a, texts: [...a.texts, item] }))
     setSelectedTextId(item.id)
-  }
-
-  function addTextLayer() {
-    if (!active) return
-    const count = active.texts.length
-    const x = active.width * 0.08
-    const y = clamp(active.height * 0.12 + count * 38, 24, active.height - 40)
-    addTextAt(x, y)
+    return item
   }
 
   function updateSelectedText(patch: Partial<TextItem>) {
@@ -3027,22 +3098,6 @@ function App() {
       ...a,
       texts: a.texts.map((t) => (t.id === selectedTextId ? { ...t, ...patch } : t)),
     }))
-  }
-
-  function adjustNumberWithWheel(
-    e: ReactWheelEvent<HTMLInputElement>,
-    value: number,
-    min: number,
-    max: number,
-    step: number,
-    apply: (next: number) => void,
-  ) {
-    if (e.currentTarget !== document.activeElement) return
-    e.preventDefault()
-    const direction = e.deltaY < 0 ? 1 : -1
-    const multiplier = e.shiftKey ? 5 : 1
-    const next = clamp(value + direction * step * multiplier, min, max)
-    apply(next)
   }
 
 function cssColorToPptHex(color: string): string {
@@ -3063,29 +3118,7 @@ function cssColorToPptHex(color: string): string {
 }
 
 function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { width: number; height: number } {
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    return {
-      width: clamp(Math.round(item.fontSize * Math.max(2, text.length * 0.62)), 24, asset.width),
-      height: clamp(Math.round(item.fontSize * 1.35), 12, asset.height),
-    }
-  }
-
-  const weight = item.fontWeight >= 600 ? 'bold ' : ''
-  const italic = item.fontStyle === 'italic' ? 'italic ' : ''
-  const fontSize = clamp(Math.round(item.fontSize), 8, 320)
-  ctx.font = `${italic}${weight}${fontSize}px "${item.fontFamily}", "Pretendard", "Noto Sans KR", sans-serif`
-  const lines = text.split(/\r?\n/)
-  let maxWidth = 0
-  for (const line of lines) {
-    const w = Math.ceil(ctx.measureText(line || ' ').width)
-    if (w > maxWidth) maxWidth = w
-  }
-  const width = clamp(maxWidth + 12, 24, Math.max(24, asset.width - item.x))
-  const lineHeight = Math.max(14, Math.round(fontSize * 1.3))
-  const height = clamp(lineHeight * Math.max(1, lines.length), 14, Math.max(14, asset.height - item.y))
-  return { width, height }
+  return estimateTextBoxForAsset(text, item, asset)
 }
 
   // Drawing state
@@ -3193,6 +3226,12 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
     const targetClass = e.target.getClassName?.()
     if (targetClass === 'Text' && tool === 'text') {
+      const textId = e.target.id()
+      const targetText = active.texts.find((t) => t.id === textId)
+      if (targetText) {
+        setSelectedTextId(targetText.id)
+        if (textClickEditMode === 'single' && !targetText.locked) beginInlineEdit(targetText)
+      }
       return
     }
 
@@ -3219,9 +3258,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
     }
 
     if (tool === 'text') {
-      if (targetClass !== 'Text') {
-        setSelectedTextId(null)
-      }
+      const xy = pointerToImageXY(stage)
+      if (!xy) return
+      const created = addTextAt(xy.x, xy.y)
+      if (created && !created.locked) beginInlineEdit(created)
       return
     }
 
@@ -3892,7 +3932,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         { keyLabel: 'T', desc: '텍스트 모드', category: 'tools' },
         { keyLabel: 'C', desc: '자르기 모드', category: 'tools' },
         { keyLabel: 'M', desc: '이동 모드', category: 'tools' },
-        { keyLabel: 'Ctrl+휠', desc: '확대/축소', category: 'tools' },
+        { keyLabel: 'Ctrl/Shift+휠', desc: '확대/축소', category: 'tools' },
         { keyLabel: 'Shift+클릭', desc: '범위 다중선택', category: 'selection' },
         { keyLabel: 'I', desc: '파일 선택 반전', category: 'selection' },
         { keyLabel: 'Esc', desc: '선택 해제', category: 'selection' },
@@ -3906,7 +3946,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
         { keyLabel: 'T', desc: 'Text mode', category: 'tools' },
         { keyLabel: 'C', desc: 'Crop mode', category: 'tools' },
         { keyLabel: 'M', desc: 'Move mode', category: 'tools' },
-        { keyLabel: 'Ctrl+wheel', desc: 'Zoom in/out', category: 'tools' },
+        { keyLabel: 'Ctrl/Shift+wheel', desc: 'Zoom in/out', category: 'tools' },
         { keyLabel: 'Shift+click', desc: 'Range multi-select', category: 'selection' },
         { keyLabel: 'I', desc: 'Invert file selection', category: 'selection' },
         { keyLabel: 'Esc', desc: 'Clear selection', category: 'selection' },
@@ -4256,6 +4296,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
       `autoSaveSeconds=${autoSaveSeconds}`,
       `showGuide=${String(showGuide)}`,
       `showShortcutTips=${String(showShortcutTips)}`,
+      `textClickEditMode=${textClickEditMode}`,
       `tooltipDensity=${tooltipDensity}`,
       `animationStrength=${animationStrength}`,
       `uiDensity=${uiDensity}`,
@@ -4405,6 +4446,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
   function resetEditingSettings() {
     setShowShortcutTips(true)
+    setTextClickEditMode('single')
     setTooltipDensity('detailed')
     setAnimationStrength('high')
     setUiDensity('default')
@@ -4803,6 +4845,16 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
 
             {settingsTab === 'editing' ? (
             <div className={settingRowClass}>
+              <div className="settingsLabel">{ui.settingsTextClickEditMode}</div>
+              <select className="langSelect settingsLangSelect" value={textClickEditMode} onChange={(e) => setTextClickEditMode(e.target.value as TextClickEditMode)}>
+                <option value="single">{ui.settingsTextClickEditSingle}</option>
+                <option value="double">{ui.settingsTextClickEditDouble}</option>
+              </select>
+            </div>
+            ) : null}
+
+            {settingsTab === 'editing' ? (
+            <div className={settingRowClass}>
               <div className="settingsLabel">{ui.settingsTooltipDensity}</div>
               <select className="langSelect settingsLangSelect" value={tooltipDensity} onChange={(e) => setTooltipDensity(e.target.value as TooltipDensity)}>
                 <option value="simple">{ui.settingsTooltipSimple}</option>
@@ -5141,8 +5193,26 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                     <button className="iconMini" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 700 })} aria-label={ui.fontWeightBold}><span aria-hidden="true">B</span><span className="srOnly">{ui.fontWeightBold}</span></button>
                     <button className={`iconMini ${selectedText.fontStyle === 'italic' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ fontStyle: selectedText.fontStyle === 'italic' ? 'normal' : 'italic' })} aria-label={ui.italicLabel}><span aria-hidden="true">I</span><span className="srOnly">{ui.italicLabel}</span></button>
                   </div>
-                  <label className="quickColor">
+                  <label className="quickColor" title={ui.textColor} aria-label={ui.textColor}>
                     <input type="color" value={selectedText.fill} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ fill: e.target.value })} />
+                  </label>
+                  <label className="quickColor" title={ui.textBorderColor} aria-label={ui.textBorderColor}>
+                    <input type="color" value={resolveTextOutlineColor(selectedText)} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ outlineColor: e.target.value })} />
+                  </label>
+                  <label className="quickColor" title={ui.textBackgroundColor} aria-label={ui.textBackgroundColor}>
+                    <input type="color" value={resolveTextBackgroundColor(selectedText)} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ backgroundColor: e.target.value })} />
+                  </label>
+                  <label className="quickOpacity" title={ui.textBackgroundOpacity} aria-label={ui.textBackgroundOpacity}>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={Math.round(resolveTextBackgroundOpacity(selectedText) * 100)}
+                      disabled={selectedText.locked}
+                      onChange={(e) => updateSelectedText({ backgroundOpacity: clamp(Number(e.target.value) / 100, 0, 1) })}
+                    />
+                    <span>{Math.round(resolveTextBackgroundOpacity(selectedText) * 100)}%</span>
                   </label>
                 </>
               ) : null}
@@ -5203,97 +5273,125 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               <Layer>
                 <Group x={fit.ox} y={fit.oy} scaleX={fit.scale} scaleY={fit.scale}>
                   {active.texts.filter((t) => t.visible).map((t) => (
-                    <Text
-                      key={t.id}
-                      id={t.id}
-                      x={t.x}
-                      y={t.y}
-                      text={t.text}
-                      fontFamily={t.fontFamily}
-                      fontSize={t.fontSize}
-                      fontStyle={toKonvaFontStyle(t)}
-                      fill={t.fill}
-                      rotation={t.rotation}
-                      align={t.align}
-                      opacity={t.opacity}
-                      draggable={!t.locked}
-                      ref={(node) => {
-                        if (node) textNodeRefs.current[t.id] = node
-                      }}
-                      onClick={() => {
-                        setSelectedTextId(t.id)
-                      }}
-                      onTap={() => {
-                        setSelectedTextId(t.id)
-                      }}
-                      onDblClick={() => {
-                        setSelectedTextId(t.id)
-                        beginInlineEdit(t)
-                      }}
-                      onDblTap={() => {
-                        setSelectedTextId(t.id)
-                        beginInlineEdit(t)
-                      }}
-                      onDragStart={() => setSelectedTextId(t.id)}
-                      onDragMove={(e) => {
-                        if (!active) return
-                        snapTextDuringDrag(e.target as Konva.Text, active)
-                      }}
-                      onDragEnd={(e) => {
-                        if (t.locked) return
-                        setDragGuides({})
-                        setDragMetrics(null)
-                        updateActiveWithHistory('Move text layer', (a) => ({
-                          ...a,
-                          texts: a.texts.map((tt) =>
-                            tt.id === t.id ? { ...tt, x: e.target.x(), y: e.target.y() } : tt,
-                          ),
-                        }))
-                      }}
-                      onTransformStart={(e) => {
-                        const node = e.target as Konva.Text
-                        const rect = node.getClientRect({ relativeTo: node.getParent() ?? undefined })
-                        textTransformBaseRef.current = {
-                          textId: t.id,
-                          fontSize: t.fontSize,
-                          rectHeight: Math.max(1, rect.height),
-                        }
-                      }}
-                      onTransformEnd={(e) => {
-                        if (t.locked) return
-                        setDragMetrics(null)
-                        const node = e.target as Konva.Text
-                        const base = textTransformBaseRef.current
-                        const rect = node.getClientRect({ relativeTo: node.getParent() ?? undefined })
-                        const scaleBased = Math.max(0.2, Math.max(Math.abs(node.scaleX()), Math.abs(node.scaleY())))
-                        const heightBased = base && base.textId === t.id ? Math.max(0.2, rect.height / Math.max(1, base.rectHeight)) : 1
-                        const ratio = Math.abs(scaleBased - 1) > 0.01 ? scaleBased : heightBased
-                        const sourceFontSize = base && base.textId === t.id ? base.fontSize : t.fontSize
-                        const nextFontSize = clamp(Math.round(sourceFontSize * ratio), 8, 240)
-                        node.scaleX(1)
-                        node.scaleY(1)
-                        textTransformBaseRef.current = null
-                        updateActiveWithHistory('Transform text layer', (a) => ({
-                          ...a,
-                          texts: a.texts.map((tt) =>
-                            tt.id === t.id
-                              ? {
-                                  ...tt,
-                                  x: node.x(),
-                                  y: node.y(),
-                                  rotation: node.rotation(),
-                                  fontSize: nextFontSize,
-                                }
-                              : tt,
-                          ),
-                        }))
-                      }}
-                      stroke={selectedTextId === t.id && editingTextId !== t.id ? 'rgba(100,210,255,0.85)' : undefined}
-                      strokeWidth={selectedTextId === t.id && editingTextId !== t.id ? 2 : 0}
-                      shadowColor={selectedTextId === t.id ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.35)'}
-                      shadowBlur={selectedTextId === t.id ? 12 : 8}
-                      shadowOpacity={0.9}
-                    />
+                    <Group key={t.id} listening={false}>
+                      {(() => {
+                        const box = estimateTextBoxPx(t.text, t, active)
+                        const padX = 8
+                        const padY = 5
+                        const backgroundOpacity = resolveTextBackgroundOpacity(t)
+                        return backgroundOpacity > 0.001 ? (
+                          <Rect
+                            x={t.x - padX}
+                            y={t.y - padY}
+                            width={box.width + padX * 2}
+                            height={box.height + padY * 2}
+                            fill={resolveTextBackgroundColor(t)}
+                            opacity={backgroundOpacity}
+                            rotation={t.rotation}
+                            listening={false}
+                          />
+                        ) : null
+                      })()}
+                      <Text
+                        id={t.id}
+                        x={t.x}
+                        y={t.y}
+                        text={t.text}
+                        fontFamily={t.fontFamily}
+                        fontSize={t.fontSize}
+                        fontStyle={toKonvaFontStyle(t)}
+                        fill={t.fill}
+                        rotation={t.rotation}
+                        align={t.align}
+                        opacity={t.opacity}
+                        stroke={resolveTextOutlineColor(t)}
+                        strokeWidth={1.2}
+                        paintStrokeEnabled
+                        draggable={!t.locked}
+                        listening
+                        ref={(node) => {
+                          if (node) textNodeRefs.current[t.id] = node
+                        }}
+                        onClick={() => {
+                          setTool('text')
+                          setSelectedTextId(t.id)
+                        }}
+                        onTap={() => {
+                          setTool('text')
+                          setSelectedTextId(t.id)
+                        }}
+                        onDblClick={() => {
+                          setTool('text')
+                          setSelectedTextId(t.id)
+                          beginInlineEdit(t)
+                        }}
+                        onDblTap={() => {
+                          setTool('text')
+                          setSelectedTextId(t.id)
+                          beginInlineEdit(t)
+                        }}
+                        onDragStart={() => {
+                          setTool('text')
+                          setSelectedTextId(t.id)
+                        }}
+                        onDragMove={(e) => {
+                          if (!active) return
+                          snapTextDuringDrag(e.target as Konva.Text, active)
+                        }}
+                        onDragEnd={(e) => {
+                          if (t.locked) return
+                          setDragGuides({})
+                          setDragMetrics(null)
+                          updateActiveWithHistory('Move text layer', (a) => ({
+                            ...a,
+                            texts: a.texts.map((tt) =>
+                              tt.id === t.id ? { ...tt, x: e.target.x(), y: e.target.y() } : tt,
+                            ),
+                          }))
+                        }}
+                        onTransformStart={(e) => {
+                          const node = e.target as Konva.Text
+                          const rect = node.getClientRect({ relativeTo: node.getParent() ?? undefined })
+                          textTransformBaseRef.current = {
+                            textId: t.id,
+                            fontSize: t.fontSize,
+                            rectHeight: Math.max(1, rect.height),
+                          }
+                        }}
+                        onTransformEnd={(e) => {
+                          if (t.locked) return
+                          setDragMetrics(null)
+                          const node = e.target as Konva.Text
+                          const base = textTransformBaseRef.current
+                          const rect = node.getClientRect({ relativeTo: node.getParent() ?? undefined })
+                          const scaleBased = Math.max(0.2, Math.max(Math.abs(node.scaleX()), Math.abs(node.scaleY())))
+                          const heightBased = base && base.textId === t.id ? Math.max(0.2, rect.height / Math.max(1, base.rectHeight)) : 1
+                          const ratio = Math.abs(scaleBased - 1) > 0.01 ? scaleBased : heightBased
+                          const sourceFontSize = base && base.textId === t.id ? base.fontSize : t.fontSize
+                          const nextFontSize = clamp(Math.round(sourceFontSize * ratio), 8, 240)
+                          node.scaleX(1)
+                          node.scaleY(1)
+                          textTransformBaseRef.current = null
+                          updateActiveWithHistory('Transform text layer', (a) => ({
+                            ...a,
+                            texts: a.texts.map((tt) =>
+                              tt.id === t.id
+                                ? {
+                                    ...tt,
+                                    x: node.x(),
+                                    y: node.y(),
+                                    rotation: node.rotation(),
+                                    fontSize: nextFontSize,
+                                  }
+                                : tt,
+                            ),
+                          }))
+                        }}
+                        shadowColor={selectedTextId === t.id ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.35)'}
+                        shadowBlur={selectedTextId === t.id ? 12 : 8}
+                        shadowOpacity={0.9}
+                      />
+                    </Group>
                   ))}
 
                   <Transformer
@@ -5303,8 +5401,10 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                     rotateEnabled
                     enabledAnchors={['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']}
                     anchorSize={10}
-                    borderStroke="rgba(100,210,255,0.85)"
+                    borderStroke="rgba(255,255,255,0.78)"
                     borderDash={[4, 4]}
+                    anchorFill="rgba(255,255,255,0.92)"
+                    anchorStroke="rgba(22,22,22,0.72)"
                     keepRatio
                   />
                 </Group>
@@ -5420,7 +5520,8 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
             <div className="title">{ui.controls}</div>
           </div>
           <div className="panelBody">
-            <div className={`row toolRow ${tool === 'text' ? 'textToolRow' : ''}`}>
+            {tool !== 'text' ? (
+            <div className="row toolRow">
               <div className="label">{ui.toolOptions}</div>
 
               {tool === 'restore' ? (
@@ -5528,150 +5629,6 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                     </button>
                   </div>
                   <div className="hint">{ui.macroHint} {ui.macroSelectHint}</div>
-                </>
-              ) : null}
-
-              {tool === 'text' ? (
-                <>
-                  <div className="buttonRow textToolActions">
-                    <button className="btn" onClick={addTextLayer} disabled={!active}>{ui.addTextLayer}</button>
-                    <button className="btn danger" onClick={clearTexts} disabled={!active || active.texts.length === 0}>{ui.clearTexts}</button>
-                    <button
-                      className="btn danger"
-                      disabled={!selectedText || selectedText.locked}
-                      onClick={() => {
-                        if (!selectedText) return
-                        const id = selectedText.id
-                        updateActiveWithHistory('Delete text layer', (a) => ({ ...a, texts: a.texts.filter((t) => t.id !== id) }))
-                        setSelectedTextId(null)
-                      }}
-                    >
-                      {ui.deleteText}
-                    </button>
-                  </div>
-                  <div className="tabs textOptionModeTabs">
-                    <button className={`tabBtn ${textOptionsMode === 'simple' ? 'active' : ''}`} onClick={() => setTextOptionsMode('simple')}>{ui.textOptionsSimple}</button>
-                    <button className={`tabBtn ${textOptionsMode === 'advanced' ? 'active' : ''}`} onClick={() => setTextOptionsMode('advanced')}>{ui.textOptionsAdvanced}</button>
-                  </div>
-                  {selectedText ? (
-                    <>
-                      <div className="textOptionGroup">
-                        <div className="label textOptionTitle">{ui.selectedText}</div>
-                        <input
-                          className="input"
-                          value={selectedText.text}
-                          disabled={selectedText.locked}
-                          onChange={(e) => updateSelectedText({ text: e.target.value })}
-                        />
-                      </div>
-                      <div className={`split textOptionGroup ${textOptionsMode === 'simple' ? 'textSplitSimple' : ''}`}>
-                        <div>
-                          <div className="label">{ui.font}</div>
-                          <select className="select" value={selectedText.fontFamily} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ fontFamily: e.target.value })}>
-                            {FONT_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <div className="label">{ui.size}</div>
-                          <input
-                            className="input"
-                            type="number"
-                            min={8}
-                            max={240}
-                            value={selectedText.fontSize}
-                            disabled={selectedText.locked}
-                            onChange={(e) => updateSelectedText({ fontSize: clamp(Number(e.target.value), 8, 240) })}
-                            onWheel={(e) => adjustNumberWithWheel(e, selectedText.fontSize, 8, 240, 1, (next) => updateSelectedText({ fontSize: next }))}
-                          />
-                        </div>
-                      </div>
-                      <div className={`split textOptionGroup ${textOptionsMode === 'simple' ? 'textSplitSimple' : ''}`}>
-                        <div>
-                          <div className="label">{ui.color}</div>
-                          <div className="colorField">
-                            <input
-                              className="input colorHex"
-                              value={selectedText.fill}
-                              disabled={selectedText.locked}
-                              onChange={(e) => updateSelectedText({ fill: e.target.value })}
-                            />
-                            <label className="colorPickerBtn">
-                              <input
-                                type="color"
-                                value={selectedText.fill}
-                                disabled={selectedText.locked}
-                                onChange={(e) => updateSelectedText({ fill: e.target.value })}
-                              />
-                              <span style={{ background: selectedText.fill }} />
-                            </label>
-                          </div>
-                          <div className="swatchRow">
-                            {COLOR_SWATCHES.map((color) => (
-                              <button
-                                key={color}
-                                className={`swatch ${selectedText.fill.toLowerCase() === color.toLowerCase() ? 'active' : ''}`}
-                                style={{ background: color }}
-                                disabled={selectedText.locked}
-                                onClick={() => updateSelectedText({ fill: color })}
-                                aria-label={color}
-                                title={color}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        {textOptionsMode === 'advanced' ? (
-                        <div>
-                          <div className="label">{ui.rotation}</div>
-                          <div className="rotationControlRow">
-                            <input
-                              className="input"
-                              type="number"
-                              min={-180}
-                              max={180}
-                              value={Math.round(selectedText.rotation)}
-                              disabled={selectedText.locked}
-                              onChange={(e) => updateSelectedText({ rotation: clamp(Number(e.target.value), -180, 180) })}
-                              onWheel={(e) => adjustNumberWithWheel(e, Math.round(selectedText.rotation), -180, 180, 1, (next) => updateSelectedText({ rotation: next }))}
-                            />
-                            <input className="input" type="range" min={-45} max={45} step={1} value={clamp(Math.round(selectedText.rotation), -45, 45)} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ rotation: Number(e.target.value) })} />
-                          </div>
-                        </div>
-                        ) : null}
-                      </div>
-                      <div className="textFormatRow textOptionGroup">
-                        <div>
-                          <div className="label">{ui.align}</div>
-                          <div className="buttonRow alignToggleRow">
-                            <button className={`btn ${selectedText.align === 'left' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'left' })} aria-label={ui.alignLeft}><span aria-hidden="true">↤</span><span className="srOnly">{ui.alignLeft}</span></button>
-                            <button className={`btn ${selectedText.align === 'center' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'center' })} aria-label={ui.alignCenter}><span aria-hidden="true">↔</span><span className="srOnly">{ui.alignCenter}</span></button>
-                            <button className={`btn ${selectedText.align === 'right' ? 'selected' : ''}`} disabled={selectedText.locked} onClick={() => updateSelectedText({ align: 'right' })} aria-label={ui.alignRight}><span aria-hidden="true">↦</span><span className="srOnly">{ui.alignRight}</span></button>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="label">{ui.fontWeightLabel}</div>
-                          <div className="weightControlRow">
-                            <input className="input" type="number" min={300} max={800} step={50} value={selectedText.fontWeight} disabled={selectedText.locked} onChange={(e) => updateSelectedText({ fontWeight: clamp(Number(e.target.value), 300, 800) })} />
-                            <div className="buttonRow weightPresetRow">
-                              <button className="btn" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 400 })} aria-label={ui.fontWeightRegular}><span aria-hidden="true">N</span><span className="srOnly">{ui.fontWeightRegular}</span></button>
-                              <button className="btn" disabled={selectedText.locked} onClick={() => updateSelectedText({ fontWeight: 700 })} aria-label={ui.fontWeightBold}><span aria-hidden="true">B</span><span className="srOnly">{ui.fontWeightBold}</span></button>
-                            </div>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="label">{ui.italicLabel}</div>
-                          <button
-                            className={`btn textItalicBtn ${selectedText.fontStyle === 'italic' ? 'selected' : ''}`}
-                            disabled={selectedText.locked}
-                            onClick={() => updateSelectedText({ fontStyle: selectedText.fontStyle === 'italic' ? 'normal' : 'italic' })}
-                            aria-label={ui.italicLabel}
-                          >
-                            <span aria-hidden="true">I</span>
-                            <span className="srOnly">{ui.italicLabel}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  ) : <div className="hint">{ui.noSelectedText}</div>}
                 </>
               ) : null}
 
@@ -5803,6 +5760,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
               ) : null}
 
             </div>
+            ) : null}
 
             {tool !== 'eraser' && tool !== 'restore' ? (
             <div className="row layerRow">
@@ -5811,7 +5769,7 @@ function estimateTextBoxPx(text: string, item: TextItem, asset: PageAsset): { wi
                 {active && active.texts.length > 0 ? (
                   active.texts.map((t, idx) => (
                     <div key={t.id} className={`layerItem ${selectedTextId === t.id ? 'active' : ''}`}>
-                      <button className="layerMain" onClick={() => setSelectedTextId(t.id)} title={t.text}>
+                      <button className="layerMain" onClick={() => { setTool('text'); setSelectedTextId(t.id) }} title={t.text}>
                         <span className="layerIndex">T{idx + 1}</span>
                         <span className="layerName">{t.text || 'Text'}</span>
                         {!t.visible ? <span className="layerTag">{ui.layerHidden}</span> : null}

@@ -16,6 +16,9 @@ export type TextItem = {
   fontFamily: string
   fontSize: number
   fill: string
+  outlineColor?: string
+  backgroundColor?: string
+  backgroundOpacity?: number
   fontWeight: number
   fontStyle: 'normal' | 'italic'
   rotation: number
